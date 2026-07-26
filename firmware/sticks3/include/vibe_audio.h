@@ -22,4 +22,5 @@ esp_err_t vibe_audio_stop(void);
 esp_err_t vibe_audio_play_sound(agent_sound_t sound);
 bool vibe_audio_is_recording(void);
 const uint8_t *vibe_audio_data(size_t *len);
+const uint8_t *vibe_audio_snapshot(size_t *len);
 void vibe_audio_clear(void);

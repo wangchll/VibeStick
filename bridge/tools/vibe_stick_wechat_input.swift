@@ -230,7 +230,106 @@ func play(_ audioURL: URL, through deviceID: AudioDeviceID) throws {
     engine.stop()
 }
 
+func streamLivePCM() throws {
+    guard AXIsProcessTrusted() else {
+        throw HelperError.message("Accessibility permission is required to trigger WeChat Input")
+    }
+    let environment = ProcessInfo.processInfo.environment
+    let requiredPrefix = environment["VIBE_STICK_EXTERNAL_INPUT_SOURCE_PREFIX"]
+        ?? "com.tencent.inputmethod.wetype"
+    let currentSource = try currentInputSourceIdentifier()
+    guard currentSource.hasPrefix(requiredPrefix) else {
+        throw HelperError.message(
+            "WeChat Input must be the current input source (current: \(currentSource))"
+        )
+    }
+    let device = try outputDevice(
+        named: environment["VIBE_STICK_EXTERNAL_INPUT_DEVICE"] ?? "BlackHole 2ch"
+    )
+    let keyCode = CGKeyCode(UInt16(environment["VIBE_STICK_EXTERNAL_INPUT_KEYCODE"] ?? "63") ?? 63)
+    let flags = try shortcutFlags(
+        from: environment["VIBE_STICK_EXTERNAL_INPUT_MODIFIERS"] ?? "fn"
+    )
+    let startDelay = max(0, min(2,
+        Double(environment["VIBE_STICK_EXTERNAL_INPUT_START_DELAY"] ?? "0.35") ?? 0.35
+    ))
+    let stopDelay = max(0, min(2,
+        Double(environment["VIBE_STICK_EXTERNAL_INPUT_STOP_DELAY"] ?? "0.8") ?? 0.8
+    ))
+
+    let previousInput = try defaultInputDevice()
+    try setDefaultInputDevice(device)
+    defer { try? setDefaultInputDevice(previousInput) }
+
+    let format = AVAudioFormat(
+        commonFormat: .pcmFormatInt16,
+        sampleRate: 16_000,
+        channels: 1,
+        interleaved: false
+    )!
+    let engine = AVAudioEngine()
+    let player = AVAudioPlayerNode()
+    engine.attach(player)
+    engine.connect(player, to: engine.mainMixerNode, format: format)
+    guard let audioUnit = engine.outputNode.audioUnit else {
+        throw HelperError.message("CoreAudio output unit is unavailable")
+    }
+    var selectedDevice = device
+    let routeStatus = AudioUnitSetProperty(
+        audioUnit,
+        kAudioOutputUnitProperty_CurrentDevice,
+        kAudioUnitScope_Global,
+        0,
+        &selectedDevice,
+        UInt32(MemoryLayout<AudioDeviceID>.size)
+    )
+    guard routeStatus == noErr else {
+        throw HelperError.message("Could not route live audio to BlackHole (\(routeStatus))")
+    }
+
+    try postFnModifier(keyCode: keyCode, flags: flags, keyDown: true)
+    var fnHeld = true
+    defer {
+        if fnHeld { try? postFnModifier(keyCode: keyCode, flags: flags, keyDown: false) }
+    }
+    Thread.sleep(forTimeInterval: startDelay)
+    try engine.start()
+    player.play()
+
+    let pending = DispatchGroup()
+    while true {
+        let data = FileHandle.standardInput.readData(ofLength: 16_000)
+        if data.isEmpty { break }
+        let frames = data.count / MemoryLayout<Int16>.size
+        guard frames > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)),
+              let channel = buffer.int16ChannelData?[0]
+        else { continue }
+        buffer.frameLength = AVAudioFrameCount(frames)
+        data.withUnsafeBytes { raw in
+            if let base = raw.baseAddress { memcpy(channel, base, frames * 2) }
+        }
+        pending.enter()
+        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { _ in
+            pending.leave()
+        }
+    }
+    guard pending.wait(timeout: .now() + 8) == .success else {
+        throw HelperError.message("Timed out draining the live WeChat audio stream")
+    }
+    Thread.sleep(forTimeInterval: stopDelay)
+    try postFnModifier(keyCode: keyCode, flags: flags, keyDown: false)
+    fnHeld = false
+    player.stop()
+    engine.stop()
+    print("WeChat Input consumed the live StickS3 stream")
+}
+
 do {
+    if CommandLine.arguments.contains("--stream") {
+        try streamLivePCM()
+        exit(0)
+    }
     let stdin = FileHandle.standardInput.readDataToEndOfFile()
     guard
         let payload = try JSONSerialization.jsonObject(with: stdin) as? [String: Any],

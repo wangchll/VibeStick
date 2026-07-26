@@ -49,7 +49,7 @@ static const audio_codec_data_if_t *s_data_if;
 static const audio_codec_gpio_if_t *s_gpio_if;
 static const audio_codec_if_t *s_codec_if;
 static uint8_t *s_audio_buffer;
-static size_t s_audio_len;
+static atomic_size_t s_audio_len;
 static size_t s_audio_capacity;
 
 static esp_err_t init_i2s(bool enable_tx, bool enable_rx)
@@ -345,15 +345,16 @@ static void audio_task(void *arg)
             continue;
         }
         read_failures = 0;
-        if (s_audio_len + sizeof(frame) <= s_audio_capacity) {
-            memcpy(s_audio_buffer + s_audio_len, frame, sizeof(frame));
-            s_audio_len += sizeof(frame);
+        size_t audio_len = atomic_load(&s_audio_len);
+        if (audio_len + sizeof(frame) <= s_audio_capacity) {
+            memcpy(s_audio_buffer + audio_len, frame, sizeof(frame));
+            atomic_store(&s_audio_len, audio_len + sizeof(frame));
         } else {
             dropped += sizeof(frame);
         }
     }
 
-    ESP_LOGI(TAG, "recorded %u bytes dropped=%u", (unsigned)s_audio_len, (unsigned)dropped);
+    ESP_LOGI(TAG, "recorded %u bytes dropped=%u", (unsigned)atomic_load(&s_audio_len), (unsigned)dropped);
     release_session_resources();
     atomic_store(&s_task_active, false);
     xSemaphoreGive(s_audio_stopped);
@@ -402,7 +403,7 @@ esp_err_t vibe_audio_start(void)
         xSemaphoreGive(s_audio_mutex);
         ESP_RETURN_ON_FALSE(false, ESP_ERR_NO_MEM, TAG, "audio buffer");
     }
-    s_audio_len = 0;
+    atomic_store(&s_audio_len, 0);
 
     esp_err_t err = init_i2s(false, true);
     if (err != ESP_OK) {
@@ -519,7 +520,15 @@ const uint8_t *vibe_audio_data(size_t *len)
         return NULL;
     }
     if (len) {
-        *len = s_audio_len;
+        *len = atomic_load(&s_audio_len);
+    }
+    return s_audio_buffer;
+}
+
+const uint8_t *vibe_audio_snapshot(size_t *len)
+{
+    if (len) {
+        *len = atomic_load(&s_audio_len);
     }
     return s_audio_buffer;
 }
@@ -534,6 +543,6 @@ void vibe_audio_clear(void)
         heap_caps_free(s_audio_buffer);
         s_audio_buffer = NULL;
     }
-    s_audio_len = 0;
+    atomic_store(&s_audio_len, 0);
     s_audio_capacity = 0;
 }

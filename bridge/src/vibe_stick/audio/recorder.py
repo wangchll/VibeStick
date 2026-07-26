@@ -71,6 +71,8 @@ class RecordingSession:
     pasted: bool = False
     audio_file: str = ""
     audio_source: str = "none"
+    streaming: bool = False
+    audio_bytes_received: int = 0
 
     def to_jsonable(self) -> dict[str, Any]:
         return asdict(self)
@@ -106,6 +108,8 @@ class RecordingController:
         self.paste_injector = MacPasteInjector()
         self.audio_recorder = MacMicRecorder()
         self._active_lease_started = 0.0
+        self._stream_pcm = bytearray()
+        self._external_stream_active = False
         self.session = self._load()
         if self.session.status == "pasting":
             # We cannot know whether the target app consumed the keystroke
@@ -180,6 +184,11 @@ class RecordingController:
         if not use_mac_mic:
             self.session.audio_source = "sticks3_pcm"
             self.session.message = "Waiting for StickS3 audio upload"
+            self._stream_pcm.clear()
+            self._external_stream_active = self.external_input.start_stream()
+            self.session.streaming = self._external_stream_active
+            if self._external_stream_active:
+                self.session.message = "Streaming StickS3 audio to WeChat Input"
             show_hud("listening")
 
         mic_result = self.audio_recorder.start(self.session.session_id) if use_mac_mic else None
@@ -235,6 +244,7 @@ class RecordingController:
         sample_rate: int = 16000,
         channels: int = 1,
         bits_per_sample: int = 16,
+        offset: int | None = None,
     ) -> RecordingSession:
         with self._lock:
             return self._attach_pcm(
@@ -243,6 +253,7 @@ class RecordingController:
                 sample_rate=sample_rate,
                 channels=channels,
                 bits_per_sample=bits_per_sample,
+                offset=offset,
             )
 
     def _attach_pcm(
@@ -253,6 +264,7 @@ class RecordingController:
         sample_rate: int = STICKS3_SAMPLE_RATE,
         channels: int = STICKS3_CHANNELS,
         bits_per_sample: int = STICKS3_BITS_PER_SAMPLE,
+        offset: int | None = None,
     ) -> RecordingSession:
         raw_session_id = session_id
         session_id = _clean_session_id(session_id)
@@ -285,6 +297,37 @@ class RecordingController:
         if len(pcm) % frame_bytes:
             raise RecordingRequestError("Uploaded PCM audio ended on a partial frame")
 
+        if offset is not None:
+            if offset < 0:
+                raise RecordingRequestError("Audio stream offset must be non-negative")
+            received = len(self._stream_pcm)
+            if offset < received:
+                end = offset + len(pcm)
+                if end <= received and self._stream_pcm[offset:end] == pcm:
+                    self.session.audio_bytes_received = received
+                    return self.session
+                raise RecordingConflictError("Audio stream retry does not match received PCM")
+            if offset != received:
+                raise RecordingConflictError(
+                    f"Audio stream offset {offset} does not match {received} received bytes"
+                )
+            self._stream_pcm.extend(pcm)
+            self.session.audio_bytes_received = len(self._stream_pcm)
+            if self._external_stream_active and not self.external_input.write_stream(pcm):
+                self._external_stream_active = False
+                self.session.streaming = False
+                self.external_input.abort_stream()
+            self.session.audio_source = "sticks3_pcm"
+            self.session.message = "StickS3 audio streaming"
+            self._save()
+            return self.session
+
+        if self._external_stream_active:
+            self.external_input.abort_stream()
+            self._external_stream_active = False
+            self.session.streaming = False
+            self._stream_pcm.clear()
+
         if session_id and (not self.session.session_id or session_id != self.session.session_id):
             self.session = RecordingSession(
                 session_id=session_id,
@@ -313,6 +356,7 @@ class RecordingController:
         ensure_private_file(audio_file)
 
         self.session.audio_file = str(audio_file)
+        self.session.audio_bytes_received = len(pcm)
         self.session.audio_source = "sticks3_pcm"
         self.session.message = "StickS3 audio uploaded"
         show_hud("sending")
@@ -366,6 +410,21 @@ class RecordingController:
         self.session.status = "stopping"
         self.session.message = "Recording stop in progress"
         self._save()
+        if self._stream_pcm:
+            ensure_private_dir(RECORDINGS_DIR)
+            audio_file = RECORDINGS_DIR / f"{self.session.session_id}.wav"
+            with wave.open(str(audio_file), "wb") as wav:
+                wav.setnchannels(STICKS3_CHANNELS)
+                wav.setsampwidth(STICKS3_BITS_PER_SAMPLE // 8)
+                wav.setframerate(STICKS3_SAMPLE_RATE)
+                wav.writeframes(self._stream_pcm)
+            ensure_private_file(audio_file)
+            self.session.audio_file = str(audio_file)
+            self.session.audio_bytes_received = len(self._stream_pcm)
+        streamed_external_result = None
+        if self._external_stream_active:
+            streamed_external_result = self.external_input.finish_stream()
+            self._external_stream_active = False
         explicit_text = str(request.get("text") or request.get("transcript") or "")
         mic_stop = self.audio_recorder.stop()
         if mic_stop is not None:
@@ -452,7 +511,10 @@ class RecordingController:
                     return self.session
 
         if self.external_input.is_configured() and not explicit_text:
-            external = self.external_input.commit(self.session.to_jsonable())
+            external = streamed_external_result
+            if external is None:
+                external = self.external_input.commit(self.session.to_jsonable())
+            self._stream_pcm.clear()
             self.session.transcript_source = external.source
             self.session.transcript = ""
             self.session.pasted = external.success

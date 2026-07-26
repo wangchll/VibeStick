@@ -164,6 +164,16 @@ POST /recording/audio?session_id=<id>
 Content-Type: application/octet-stream
 ```
 
+When the `/recording/start` response contains `"streaming": true`, firmware
+uploads consecutive chunks while the button remains held:
+
+```text
+POST /recording/audio?session_id=<id>&offset=<pcm-byte-offset>
+```
+
+Offsets make retries idempotent. A Bridge that does not advertise streaming
+continues to receive the original single complete upload after button release.
+
 The bridge writes a local WAV file under:
 
 ```text

@@ -335,6 +335,7 @@ class BridgeStateStore:
         sample_rate: int = 16000,
         channels: int = 1,
         bits_per_sample: int = 16,
+        offset: int | None = None,
     ) -> dict[str, Any]:
         session = self.recording.attach_pcm(
             pcm,
@@ -342,6 +343,7 @@ class BridgeStateStore:
             sample_rate=sample_rate,
             channels=channels,
             bits_per_sample=bits_per_sample,
+            offset=offset,
         )
         return {"recording": session.to_public_jsonable(), "state": self.get_state().to_jsonable()}
 
@@ -588,6 +590,11 @@ def make_handler(
                             sample_rate=_int_header(self.headers.get("X-Vibe-Stick-Sample-Rate"), 16000),
                             channels=_int_header(self.headers.get("X-Vibe-Stick-Channels"), 1),
                             bits_per_sample=_int_header(self.headers.get("X-Vibe-Stick-Bits-Per-Sample"), 16),
+                            offset=(
+                                int(_first(query, "offset"))
+                                if _first(query, "offset")
+                                else None
+                            ),
                         )
                     )
                 elif parsed.path == "/recording/stop":

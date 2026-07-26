@@ -141,6 +141,9 @@ static size_t s_pending_alert_sound_head;
 static size_t s_pending_alert_sound_count;
 static char s_recording_session_id[40];
 static bool s_recording_audio_uploaded;
+static bool s_recording_streaming;
+static size_t s_recording_stream_offset;
+static int64_t s_recording_stream_last_ms;
 static int64_t s_post_recording_action_deadline_ms;
 static bool s_pet_view_visible;
 static vibe_roxy_state_t s_pet_animation_state = VIBE_ROXY_IDLE;
@@ -1651,6 +1654,20 @@ static bool parse_recording_status(const char *json, char *status_text, size_t s
     return ok;
 }
 
+static bool parse_recording_streaming(const char *json)
+{
+    cJSON *root = cJSON_Parse(json);
+    if (!root) {
+        return false;
+    }
+    cJSON *recording = cJSON_GetObjectItemCaseSensitive(root, "recording");
+    cJSON *streaming = cJSON_IsObject(recording) ?
+        cJSON_GetObjectItemCaseSensitive(recording, "streaming") : NULL;
+    bool enabled = cJSON_IsTrue(streaming);
+    cJSON_Delete(root);
+    return enabled;
+}
+
 static void generate_recording_session_id(char *session_id, size_t session_id_len)
 {
     if (session_id_len < 33) {
@@ -1717,6 +1734,35 @@ static esp_err_t upload_recording_audio(bool *terminal_rejection)
     return ESP_OK;
 }
 
+static esp_err_t upload_recording_stream_chunk(bool force)
+{
+    if (!s_recording_streaming || s_recording_session_id[0] == '\0') {
+        return ESP_ERR_INVALID_STATE;
+    }
+    size_t captured = 0;
+    const uint8_t *audio = vibe_audio_snapshot(&captured);
+    if (!audio || captured <= s_recording_stream_offset) {
+        return ESP_OK;
+    }
+    size_t available = captured - s_recording_stream_offset;
+    if (!force && available < 8000) {
+        return ESP_OK;
+    }
+    size_t chunk_len = available > 16000 ? 16000 : available;
+    char path[128];
+    snprintf(path, sizeof(path), "%s?session_id=%s&offset=%u",
+             VIBE_STICK_RECORDING_AUDIO_PATH, s_recording_session_id,
+             (unsigned)s_recording_stream_offset);
+    char response[HTTP_JSON_RESPONSE_CAPACITY] = {0};
+    esp_err_t err = http_post_binary(path, audio + s_recording_stream_offset,
+                                     chunk_len, response, sizeof(response));
+    if (err == ESP_OK) {
+        s_recording_stream_offset += chunk_len;
+        s_recording_stream_last_ms = esp_timer_get_time() / 1000;
+    }
+    return err;
+}
+
 static void handle_recording_start(void)
 {
     if (s_recording_session_id[0] != '\0') {
@@ -1735,6 +1781,8 @@ static void handle_recording_start(void)
     close_post_recording_action_window();
     generate_recording_session_id(s_recording_session_id, sizeof(s_recording_session_id));
     s_recording_audio_uploaded = false;
+    s_recording_streaming = false;
+    s_recording_stream_offset = 0;
     if (s_recording_session_id[0] == '\0') {
         ESP_LOGW(TAG, "recording start failed: no session id");
         return;
@@ -1789,6 +1837,11 @@ static void handle_recording_start(void)
             ESP_LOGW(TAG, "recording start response incomplete session=%s status=%s",
                      response_session_id, recording_status);
         }
+        if (same_session && strcmp(recording_status, "recording") == 0) {
+            s_recording_streaming = parse_recording_streaming(response);
+            s_recording_stream_offset = 0;
+            s_recording_stream_last_ms = esp_timer_get_time() / 1000;
+        }
         if (parse_state_json(response)) {
             render_state();
             maybe_handle_alert();
@@ -1825,6 +1878,21 @@ static void handle_recording_stop(void)
         poll_state();
         finish_recording_overlay();
         return;
+    }
+
+    if (s_recording_streaming) {
+        size_t captured = 0;
+        (void)vibe_audio_snapshot(&captured);
+        while (s_recording_stream_offset < captured) {
+            if (upload_recording_stream_chunk(true) != ESP_OK) {
+                s_recording_streaming = false;
+                break;
+            }
+        }
+        if (s_recording_stream_offset == captured && captured > 0) {
+            s_recording_audio_uploaded = true;
+            vibe_audio_clear();
+        }
     }
 
     if (!s_recording_audio_uploaded) {
@@ -1899,6 +1967,8 @@ static void handle_recording_stop(void)
             is_recording_success_status(recording_status);
         s_recording_session_id[0] = '\0';
         s_recording_audio_uploaded = false;
+        s_recording_streaming = false;
+        s_recording_stream_offset = 0;
     } else {
         ESP_LOGW(TAG, "recording session retained for stop retry session=%s",
                  s_recording_session_id);
@@ -2097,6 +2167,14 @@ static void app_task(void *arg)
             continue;
         }
         int64_t now_ms = esp_timer_get_time() / 1000;
+        if (s_recording_streaming && vibe_audio_is_recording() &&
+            now_ms - s_recording_stream_last_ms >= 250) {
+            esp_err_t stream_err = upload_recording_stream_chunk(false);
+            if (stream_err != ESP_OK && stream_err != ESP_ERR_INVALID_STATE) {
+                ESP_LOGW(TAG, "live audio chunk upload failed: %s", esp_err_to_name(stream_err));
+                s_recording_streaming = false;
+            }
+        }
         if (now_ms - last_power_poll >= POWER_STATE_POLL_MS) {
             last_power_poll = now_ms;
             if (refresh_power_state()) {

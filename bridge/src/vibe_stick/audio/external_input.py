@@ -34,6 +34,68 @@ class ExternalVoiceInputAdapter:
     the currently focused field.
     """
 
+    def __init__(self) -> None:
+        self._stream_process: subprocess.Popen[str] | None = None
+
+    def start_stream(self) -> bool:
+        if _external_input_provider() != "wechat-input":
+            return False
+        binary = _ensure_wechat_helper_binary()
+        if binary is None:
+            return False
+        try:
+            self._stream_process = subprocess.Popen(
+                [str(binary), "--stream"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,
+            )
+        except OSError:
+            self._stream_process = None
+            return False
+        return True
+
+    def write_stream(self, pcm: bytes) -> bool:
+        process = self._stream_process
+        if process is None or process.stdin is None or process.poll() is not None:
+            return False
+        try:
+            process.stdin.write(pcm)
+            process.stdin.flush()
+            return True
+        except (BrokenPipeError, OSError):
+            return False
+
+    def finish_stream(self) -> ExternalInputResult | None:
+        process = self._stream_process
+        self._stream_process = None
+        if process is None:
+            return None
+        try:
+            stdout, stderr = process.communicate(timeout=_external_input_timeout_seconds())
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+            return ExternalInputResult(False, "WeChat Input stream timed out", "wechat-input")
+        if process.returncode != 0:
+            message = (stderr or stdout or b"WeChat Input stream failed").decode(
+                "utf-8", errors="replace"
+            ).strip()
+            return ExternalInputResult(False, message, "wechat-input")
+        return ExternalInputResult(
+            True,
+            (stdout or b"").decode("utf-8", errors="replace").strip()
+            or "WeChat Input consumed the live StickS3 stream",
+            "wechat-input",
+        )
+
+    def abort_stream(self) -> None:
+        process = self._stream_process
+        self._stream_process = None
+        if process is not None and process.poll() is None:
+            process.kill()
+
     def is_configured(self) -> bool:
         return (
             _external_input_provider() == "wechat-input"

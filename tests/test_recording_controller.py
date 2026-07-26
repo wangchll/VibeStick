@@ -113,6 +113,22 @@ class RecordingControllerTests(unittest.TestCase):
         self.assertNotIn("audio_file", public)
         self.assertNotIn("transcript", public)
 
+    def test_streamed_pcm_appends_by_offset_and_deduplicates_retry(self) -> None:
+        with mock.patch.object(self.controller.external_input, "start_stream", return_value=True):
+            session = self.controller.start(self._request("aaaaaaaa"))
+        self.assertTrue(session.streaming)
+        first = b"\x01\x00" * 100
+        second = b"\x02\x00" * 100
+        with mock.patch.object(self.controller.external_input, "write_stream", return_value=True) as write:
+            self.controller.attach_pcm(first, session_id="aaaaaaaa", offset=0)
+            self.controller.attach_pcm(second, session_id="aaaaaaaa", offset=len(first))
+            self.controller.attach_pcm(first, session_id="aaaaaaaa", offset=0)
+
+        self.assertEqual(self.controller.session.audio_bytes_received, len(first) + len(second))
+        self.assertEqual(write.call_count, 2)
+        with self.assertRaises(recorder.RecordingConflictError):
+            self.controller.attach_pcm(second, session_id="aaaaaaaa", offset=2)
+
     def test_public_recording_message_uses_utf8_byte_budget(self) -> None:
         self.controller.session.message = "供" * 1000 + "\ud800"
 
