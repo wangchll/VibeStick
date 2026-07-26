@@ -79,6 +79,48 @@ func outputDevice(named wantedName: String) throws -> AudioDeviceID {
     )
 }
 
+func defaultInputDevice() throws -> AudioDeviceID {
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var deviceID = AudioDeviceID(0)
+    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    let status = AudioObjectGetPropertyData(
+        AudioObjectID(kAudioObjectSystemObject),
+        &address,
+        0,
+        nil,
+        &size,
+        &deviceID
+    )
+    guard status == noErr, deviceID != 0 else {
+        throw HelperError.message("Could not read the default microphone (\(status))")
+    }
+    return deviceID
+}
+
+func setDefaultInputDevice(_ deviceID: AudioDeviceID) throws {
+    var address = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+    var selected = deviceID
+    let status = AudioObjectSetPropertyData(
+        AudioObjectID(kAudioObjectSystemObject),
+        &address,
+        0,
+        nil,
+        UInt32(MemoryLayout<AudioDeviceID>.size),
+        &selected
+    )
+    guard status == noErr else {
+        throw HelperError.message("Could not select the virtual microphone (\(status))")
+    }
+}
+
 func shortcutFlags(from raw: String) throws -> CGEventFlags {
     var flags: CGEventFlags = []
     for token in raw.lowercased().split(separator: ",").map({ $0.trimmingCharacters(in: .whitespaces) }) {
@@ -96,14 +138,36 @@ func shortcutFlags(from raw: String) throws -> CGEventFlags {
 }
 
 func postKey(keyCode: CGKeyCode, flags: CGEventFlags, keyDown: Bool) throws {
+    guard let source = CGEventSource(stateID: .hidSystemState) else {
+        throw HelperError.message("Could not create a HID keyboard event source")
+    }
     guard let event = CGEvent(
-        keyboardEventSource: nil,
+        keyboardEventSource: source,
         virtualKey: keyCode,
         keyDown: keyDown
     ) else {
         throw HelperError.message("Could not create the WeChat Input shortcut event")
     }
     event.flags = keyDown ? flags : []
+    event.post(tap: .cghidEventTap)
+}
+
+func postFnModifier(keyCode: CGKeyCode, flags: CGEventFlags, keyDown: Bool) throws {
+    guard let source = CGEventSource(stateID: .hidSystemState) else {
+        throw HelperError.message("Could not create a HID Fn event source")
+    }
+    guard let event = CGEvent(
+        keyboardEventSource: source,
+        virtualKey: keyCode,
+        keyDown: keyDown
+    ) else {
+        throw HelperError.message("Could not create the WeChat Input Fn event")
+    }
+    // Fn is a modifier key. macOS reports it as flagsChanged rather than as a
+    // normal keyDown/keyUp pair, which is what WeChat Input's hold-Fn monitor
+    // listens for.
+    event.type = .flagsChanged
+    event.flags = keyDown ? flags.union(.maskSecondaryFn) : []
     event.post(tap: .cghidEventTap)
 }
 
@@ -190,8 +254,17 @@ do {
     let startDelay = max(0, min(2, Double(environment["VIBE_STICK_EXTERNAL_INPUT_START_DELAY"] ?? "0.35") ?? 0.35))
     let stopDelay = max(0, min(2, Double(environment["VIBE_STICK_EXTERNAL_INPUT_STOP_DELAY"] ?? "0.5") ?? 0.5))
 
+    let previousInput = try defaultInputDevice()
+    try setDefaultInputDevice(device)
+    var needsInputRestore = true
+    defer {
+        if needsInputRestore {
+            try? setDefaultInputDevice(previousInput)
+        }
+    }
+
     if shortcutMode == "fn-hold" {
-        try postKey(keyCode: keyCode, flags: flags, keyDown: true)
+        try postFnModifier(keyCode: keyCode, flags: flags, keyDown: true)
     } else {
         try tapShortcut(keyCode: keyCode, flags: flags)
     }
@@ -199,7 +272,7 @@ do {
     defer {
         if needsStop {
             if shortcutMode == "fn-hold" {
-                try? postKey(keyCode: keyCode, flags: flags, keyDown: false)
+                try? postFnModifier(keyCode: keyCode, flags: flags, keyDown: false)
             } else {
                 try? tapShortcut(keyCode: keyCode, flags: flags)
             }
@@ -209,11 +282,13 @@ do {
     try play(URL(fileURLWithPath: audioPath), through: device)
     Thread.sleep(forTimeInterval: stopDelay)
     if shortcutMode == "fn-hold" {
-        try postKey(keyCode: keyCode, flags: flags, keyDown: false)
+        try postFnModifier(keyCode: keyCode, flags: flags, keyDown: false)
     } else {
         try tapShortcut(keyCode: keyCode, flags: flags)
     }
     needsStop = false
+    try setDefaultInputDevice(previousInput)
+    needsInputRestore = false
     print("WeChat Input consumed the StickS3 recording")
 } catch {
     fputs((error.localizedDescription + "\n"), stderr)
