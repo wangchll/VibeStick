@@ -16,7 +16,6 @@
    VIBE_STICK_EXTERNAL_INPUT_SHORTCUT_MODE=fn-hold
    VIBE_STICK_EXTERNAL_INPUT_KEYCODE=63
    VIBE_STICK_EXTERNAL_INPUT_MODIFIERS=fn
-   VIBE_STICK_EXTERNAL_INPUT_PLAYBACK_RATE=1.15
    ```
 
 4. 重新运行安装器。首次使用时，在“系统设置 → 隐私与安全性 → 辅助功能”
@@ -31,9 +30,6 @@ helper 只在一次语音会话期间把系统默认输入临时切到 BlackHole
 立即恢复原来的默认麦克风。系统默认输出设备不会被修改。
 音频虽然通过 AVFoundation 的“播放”接口写入 BlackHole，但不会写入系统默认
 输出或扬声器；这是把已有录音转换成虚拟麦克风信号所必需的内部回环步骤。
-为缩短松开按键后的等待时间，helper 默认用保留原音调的 `1.15×` 速度送入
-BlackHole；可通过 `VIBE_STICK_EXTERNAL_INPUT_PLAYBACK_RATE` 在 `1.0–1.35`
-之间调整，较高速度可能降低微信对含混语音的识别率。
 
 微信输入法会把识别结果写入触发语音会话时拥有键盘焦点的应用。测试时请先
 把光标放入目标文本框，并避免在识别完成前切换到终端或其他应用。
