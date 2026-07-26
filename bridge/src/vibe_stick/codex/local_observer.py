@@ -178,6 +178,7 @@ def _summarize_session(path: Path) -> _CodexSessionSummary | None:
     latest_task_started: datetime | None = None
     latest_alert: tuple[datetime, AgentStatus, str, str, str] | None = None
     latest_quota: tuple[datetime, QuotaSnapshot] | None = None
+    pending_approval_calls: dict[str, datetime] = {}
 
     for event in events:
         timestamp = _parse_timestamp(event.get("timestamp"))
@@ -189,6 +190,15 @@ def _summarize_session(path: Path) -> _CodexSessionSummary | None:
         payload = payload if isinstance(payload, dict) else {}
         payload_type = str(payload.get("type") or top_type)
         candidate_type = payload_type or top_type
+
+        if candidate_type == "custom_tool_call":
+            call_id = _pending_approval_call_id(payload)
+            if call_id:
+                pending_approval_calls[call_id] = timestamp
+        elif candidate_type == "custom_tool_call_output":
+            call_id = str(payload.get("call_id") or "")
+            if call_id:
+                pending_approval_calls.pop(call_id, None)
 
         if top_type == "turn_context":
             cwd = payload.get("cwd")
@@ -244,6 +254,27 @@ def _summarize_session(path: Path) -> _CodexSessionSummary | None:
             if latest_alert is None or timestamp > latest_alert[0]:
                 latest_alert = candidate_alert
 
+    if pending_approval_calls:
+        call_id, timestamp = max(
+            pending_approval_calls.items(),
+            key=lambda item: item[1],
+        )
+        pending_alert = (
+            timestamp,
+            AgentStatus.APPROVAL,
+            "APPROVAL",
+            "Codex is waiting for approval",
+            _alert_event_id(
+                path,
+                events,
+                alert_kind="APPROVAL",
+                turn_id=call_id,
+                timestamp=timestamp,
+            ),
+        )
+        if latest_alert is None or timestamp > latest_alert[0]:
+            latest_alert = pending_alert
+
     return _CodexSessionSummary(
         path=str(path),
         latest_event=latest_event,
@@ -253,6 +284,18 @@ def _summarize_session(path: Path) -> _CodexSessionSummary | None:
         latest_alert=latest_alert,
         latest_quota=latest_quota,
     )
+
+
+def _pending_approval_call_id(payload: dict[str, Any]) -> str:
+    if str(payload.get("name") or "") != "exec":
+        return ""
+    input_text = payload.get("input")
+    if not isinstance(input_text, str):
+        return ""
+    compact = "".join(input_text.split())
+    if '"sandbox_permissions":"require_escalated"' not in compact:
+        return ""
+    return str(payload.get("call_id") or "")
 
 
 def _latest_summary(

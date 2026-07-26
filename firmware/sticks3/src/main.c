@@ -77,6 +77,7 @@ typedef enum {
     VIBE_STICK_EVENT_LONG_STOP,
     VIBE_STICK_EVENT_ENTER_PET,
     VIBE_STICK_EVENT_EXIT_PET,
+    VIBE_STICK_EVENT_CLEAR_DRAFT,
 } agent_event_type_t;
 
 typedef struct {
@@ -1978,6 +1979,13 @@ static void button_side_double_cb(void *button_handle, void *usr_data)
     queue_event(VIBE_STICK_EVENT_EXIT_PET);
 }
 
+static void button_side_long_cb(void *button_handle, void *usr_data)
+{
+    (void)button_handle;
+    (void)usr_data;
+    queue_event(VIBE_STICK_EVENT_CLEAR_DRAFT);
+}
+
 static void button_long_start_cb(void *button_handle, void *usr_data)
 {
     (void)button_handle;
@@ -2042,6 +2050,15 @@ static esp_err_t init_buttons(void)
     ESP_RETURN_ON_ERROR(iot_button_register_cb(side_button, BUTTON_DOUBLE_CLICK, NULL,
                                                 button_side_double_cb, NULL),
                         TAG, "side button double");
+    button_event_args_t side_long_press_args = {
+        .long_press = {
+            .press_time = 700,
+        },
+    };
+    ESP_RETURN_ON_ERROR(iot_button_register_cb(side_button, BUTTON_LONG_PRESS_START,
+                                                &side_long_press_args,
+                                                button_side_long_cb, NULL),
+                        TAG, "side button long");
     return ESP_OK;
 }
 
@@ -2151,6 +2168,12 @@ static void app_task(void *arg)
             // pending.
             set_pet_view_visible(false);
             post_simple_event("button_approval_cancel", NULL);
+            break;
+        case VIBE_STICK_EVENT_CLEAR_DRAFT:
+            // Long-press the right-side button to clear the most recently
+            // pasted voice draft in Codex. The Bridge independently verifies
+            // that a pasted draft exists and no approval is pending.
+            post_simple_event("button_clear_draft", NULL);
             break;
         }
     }

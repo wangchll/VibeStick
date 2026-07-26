@@ -19,6 +19,18 @@ class MacPasteInjector:
             success_message="Pressed Return in the focused app",
         )
 
+    def clear_codex_draft(self) -> PasteResult:
+        return self._run_osascript(
+            [
+                'tell application id "com.openai.codex" to activate',
+                "delay 0.12",
+                'tell application "System Events" to keystroke "a" using command down',
+                "delay 0.08",
+                'tell application "System Events" to key code 51',
+            ],
+            success_message="Cleared the Codex draft",
+        )
+
     def pause_current_codex_task(self) -> PasteResult:
         # Codex uses Escape to focus the composer (when needed), show the stop
         # confirmation, and then interrupt the current turn. The final Escape

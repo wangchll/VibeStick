@@ -303,9 +303,11 @@ static const sound_segment_t *sound_segments_for(agent_sound_t sound, size_t *co
         {.freq_hz = 240, .duration_ms = 100},
     };
     static const sound_segment_t approval[] = {
-        {.freq_hz = 600, .duration_ms = 100},
-        {.freq_hz = 0, .duration_ms = 60},
-        {.freq_hz = 800, .duration_ms = 100},
+        {.freq_hz = 740, .duration_ms = 90},
+        {.freq_hz = 0, .duration_ms = 50},
+        {.freq_hz = 1040, .duration_ms = 90},
+        {.freq_hz = 0, .duration_ms = 50},
+        {.freq_hz = 740, .duration_ms = 140},
     };
 
     switch (sound) {

@@ -16,13 +16,19 @@ class ButtonActionTests(unittest.TestCase):
         self.store._state = default_state()
         self.store._state.alert = AlertState(event_id="done", type=AlertType.DONE, message="done")
         self.store._post_recording_action_until = float("inf")
+        self.store._last_session_pasted = False
         self.store._save_state_locked = mock.Mock()
         self.store.refresh_quota_locked = mock.Mock()
         self.store.input_injector = mock.Mock()
         self.store.input_injector.press_enter.return_value = PasteResult(True, "sent")
         self.store.input_injector.pause_current_codex_task.return_value = PasteResult(True, "paused")
+        self.store.input_injector.clear_codex_draft.return_value = PasteResult(True, "cleared")
+        self.store.input_injector.approve_codex_task.return_value = PasteResult(True, "approved")
+        self.store.input_injector.cancel_codex_task.return_value = PasteResult(True, "cancelled")
 
     def test_short_press_sends_and_clears_alert(self) -> None:
+        self.store._last_session_pasted = True
+
         self.store.update_from_event({"event": "button_short"})
 
         self.store.input_injector.press_enter.assert_called_once_with()
@@ -90,6 +96,69 @@ class ButtonActionTests(unittest.TestCase):
         self.store.stop_recording({"session_id": "recording"})
 
         self.assertEqual(self.store._post_recording_action_until, 0.0)
+
+    def test_side_single_click_approves_when_codex_status_is_waiting(self) -> None:
+        self.store._state.alert = AlertState(event_id="", type=AlertType.NONE, message="")
+        self.store._state.codex.status = app.AgentStatus.APPROVAL
+
+        self.store.update_from_event({"event": "button_approval_confirm"})
+        self.store.update_from_event({"event": "button_approval_confirm"})
+
+        self.store.input_injector.approve_codex_task.assert_called_once_with()
+        self.store.input_injector.cancel_codex_task.assert_not_called()
+        self.assertEqual(self.store._state.codex.status, app.AgentStatus.RUNNING)
+
+    def test_side_double_click_rejects_when_provider_status_is_waiting(self) -> None:
+        self.store._state.alert = AlertState(event_id="", type=AlertType.NONE, message="")
+        self.store._state.provider.status = app.AgentStatus.APPROVAL
+
+        self.store.update_from_event({"event": "button_approval_cancel"})
+
+        self.store.input_injector.cancel_codex_task.assert_called_once_with()
+        self.store.input_injector.approve_codex_task.assert_not_called()
+
+    def test_approval_action_failure_keeps_alert_for_retry(self) -> None:
+        self.store._state.alert = AlertState(
+            event_id="approval", type=AlertType.APPROVAL, message="waiting"
+        )
+        self.store.input_injector.approve_codex_task.return_value = PasteResult(False, "failed")
+
+        self.store.update_from_event({"event": "button_approval_confirm"})
+
+        self.assertEqual(self.store._state.alert.type, AlertType.APPROVAL)
+
+    def test_side_clicks_are_ignored_without_pending_approval(self) -> None:
+        self.store.update_from_event({"event": "button_approval_confirm"})
+        self.store.update_from_event({"event": "button_approval_cancel"})
+
+        self.store.input_injector.approve_codex_task.assert_not_called()
+        self.store.input_injector.cancel_codex_task.assert_not_called()
+
+    def test_side_long_press_clears_pasted_voice_draft(self) -> None:
+        self.store._last_session_pasted = True
+
+        self.store.update_from_event({"event": "button_clear_draft"})
+
+        self.store.input_injector.clear_codex_draft.assert_called_once_with()
+        self.assertFalse(self.store._last_session_pasted)
+        self.assertEqual(self.store._post_recording_action_until, 0.0)
+
+    def test_side_long_press_does_not_clear_during_approval(self) -> None:
+        self.store._last_session_pasted = True
+        self.store._state.codex.status = app.AgentStatus.APPROVAL
+
+        self.store.update_from_event({"event": "button_clear_draft"})
+
+        self.store.input_injector.clear_codex_draft.assert_not_called()
+        self.assertTrue(self.store._last_session_pasted)
+
+    def test_side_long_press_failure_keeps_draft_available(self) -> None:
+        self.store._last_session_pasted = True
+        self.store.input_injector.clear_codex_draft.return_value = PasteResult(False, "failed")
+
+        self.store.update_from_event({"event": "button_clear_draft"})
+
+        self.assertTrue(self.store._last_session_pasted)
 
 
 if __name__ == "__main__":

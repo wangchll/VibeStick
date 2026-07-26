@@ -708,6 +708,53 @@ class CodexProviderTests(unittest.TestCase):
                 self.assertEqual(observation.status, expected_status)
                 self.assertEqual(observation.alert_type, expected_alert_type)
 
+    def test_pending_escalated_tool_call_reports_approval(self) -> None:
+        now = datetime.now(timezone.utc)
+        tool_call = {
+            "timestamp": (now - timedelta(seconds=1)).isoformat(),
+            "type": "response_item",
+            "payload": {
+                "type": "custom_tool_call",
+                "call_id": "call-approval",
+                "name": "exec",
+                "input": '{"sandbox_permissions": "require_escalated"}',
+            },
+        }
+
+        observation = self._observe_events([tool_call])
+
+        self.assertEqual(observation.status, AgentStatus.APPROVAL)
+        self.assertEqual(observation.alert_type, "APPROVAL")
+
+    def test_completed_escalated_tool_call_clears_approval(self) -> None:
+        now = datetime.now(timezone.utc)
+        events = [
+            {
+                "timestamp": (now - timedelta(seconds=2)).isoformat(),
+                "type": "response_item",
+                "payload": {
+                    "type": "custom_tool_call",
+                    "call_id": "call-approval",
+                    "name": "exec",
+                    "input": '{"sandbox_permissions":"require_escalated"}',
+                },
+            },
+            {
+                "timestamp": (now - timedelta(seconds=1)).isoformat(),
+                "type": "response_item",
+                "payload": {
+                    "type": "custom_tool_call_output",
+                    "call_id": "call-approval",
+                    "output": [],
+                },
+            },
+        ]
+
+        observation = self._observe_events(events)
+
+        self.assertNotEqual(observation.status, AgentStatus.APPROVAL)
+        self.assertEqual(observation.alert_type, "")
+
     def test_model_specific_rate_limit_does_not_replace_main_codex_quota(self) -> None:
         now = datetime.now(timezone.utc)
         payload = {

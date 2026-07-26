@@ -31,6 +31,19 @@ class MacInputInjectorTests(unittest.TestCase):
         self.assertIn('tell application id "com.openai.codex" to activate', args)
         self.assertEqual(args.count('tell application "System Events" to key code 53'), 3)
 
+    @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Darwin")
+    @mock.patch("vibe_stick.paste.input_injector.subprocess.run")
+    def test_clear_draft_targets_codex_and_selects_all(self, run: mock.Mock, _system: mock.Mock) -> None:
+        run.return_value = subprocess.CompletedProcess([], 0, "", "")
+
+        result = MacPasteInjector().clear_codex_draft()
+
+        self.assertTrue(result.success)
+        args = run.call_args.args[0]
+        self.assertIn('tell application id "com.openai.codex" to activate', args)
+        self.assertIn('tell application "System Events" to keystroke "a" using command down', args)
+        self.assertIn('tell application "System Events" to key code 51', args)
+
     @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Linux")
     @mock.patch("vibe_stick.paste.input_injector.subprocess.run")
     def test_keyboard_actions_fail_cleanly_off_macos(self, run: mock.Mock, _system: mock.Mock) -> None:

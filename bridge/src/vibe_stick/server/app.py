@@ -215,18 +215,33 @@ class BridgeStateStore:
                     self._log_button_action("pause", self.input_injector.pause_current_codex_task())
                 else:
                     self._log_ignored_button_action("pause")
+            elif event_name == "button_clear_draft":
+                if self._approval_pending_locked():
+                    self._log_ignored_button_action("clear_draft", "approval is pending")
+                elif self._last_session_pasted_locked():
+                    result = self.input_injector.clear_codex_draft()
+                    self._log_button_action("clear_draft", result)
+                    if result.success:
+                        self._last_session_pasted = False
+                        self._post_recording_action_until = 0.0
+                else:
+                    self._log_ignored_button_action("clear_draft", "no pasted voice draft")
             elif event_name == "button_approval_confirm":
-                if self._state.alert.type == AlertType.APPROVAL:
-                    self._state.alert = AlertState(event_id="", type=AlertType.NONE, message="")
-                    self._log_button_action("approval_confirm", self.input_injector.approve_codex_task())
+                if self._approval_pending_locked():
+                    result = self.input_injector.approve_codex_task()
+                    self._log_button_action("approval_confirm", result)
+                    if result.success:
+                        self._clear_approval_pending_locked()
                 else:
-                    self._log_ignored_button_action("approval_confirm")
+                    self._log_ignored_button_action("approval_confirm", "no pending approval")
             elif event_name == "button_approval_cancel":
-                if self._state.alert.type == AlertType.APPROVAL:
-                    self._state.alert = AlertState(event_id="", type=AlertType.NONE, message="")
-                    self._log_button_action("approval_cancel", self.input_injector.cancel_codex_task())
+                if self._approval_pending_locked():
+                    result = self.input_injector.cancel_codex_task()
+                    self._log_button_action("approval_cancel", result)
+                    if result.success:
+                        self._clear_approval_pending_locked()
                 else:
-                    self._log_ignored_button_action("approval_cancel")
+                    self._log_ignored_button_action("approval_cancel", "no pending approval")
             self._save_state_locked()
             return self._state_snapshot_locked()
 
@@ -238,13 +253,33 @@ class BridgeStateStore:
         )
 
     @staticmethod
-    def _log_ignored_button_action(action: str) -> None:
+    def _log_ignored_button_action(
+        action: str,
+        reason: str = (
+            f"outside post-recording {POST_RECORDING_ACTION_WINDOW_SECONDS:g}-second window"
+        ),
+    ) -> None:
         print(
-            f"button action={action} success=false "
-            f"message=ignored outside post-recording "
-            f"{POST_RECORDING_ACTION_WINDOW_SECONDS:g}-second window",
+            f"button action={action} success=false message=ignored: {reason}",
             flush=True,
         )
+
+    def _approval_pending_locked(self) -> bool:
+        # The alert is presentation state and may be cleared while Codex is
+        # still waiting (notably when the Bridge establishes its baseline
+        # after a restart). The provider status remains authoritative then.
+        return (
+            self._state.alert.type == AlertType.APPROVAL
+            or self._state.codex.status == AgentStatus.APPROVAL
+            or self._state.provider.status == AgentStatus.APPROVAL
+        )
+
+    def _clear_approval_pending_locked(self) -> None:
+        self._state.alert = AlertState(event_id="", type=AlertType.NONE, message="")
+        if self._state.codex.status == AgentStatus.APPROVAL:
+            self._state.codex.status = AgentStatus.RUNNING
+        if self._state.provider.status == AgentStatus.APPROVAL:
+            self._state.provider.status = AgentStatus.RUNNING
 
     def _post_recording_action_available_locked(self) -> bool:
         deadline = getattr(self, "_post_recording_action_until", 0.0)

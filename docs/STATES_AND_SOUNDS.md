@@ -6,7 +6,7 @@ VibeStick v0.1.7 plays sounds only for key agent status changes on the home scre
 | --- | --- | --- |
 | Completed / 完成 | Any user-started root Codex conversation finishes | 880 Hz 80 ms, 40 ms gap, 1320 Hz 120 ms |
 | Error / 报错 | Codex reports `ERROR`, `FAILED`, or `FAILURE` | 240 Hz 100 ms, 60 ms gap, repeated 3 times |
-| Waiting for approval / 等待审批 | Codex reports `APPROVAL`, `WAITING_APPROVAL`, `PENDING_APPROVAL`, or `NEEDS_APPROVAL` | 600 Hz 100 ms, 60 ms gap, 800 Hz 100 ms |
+| Waiting for approval / 等待审批 | Codex reports a pending `require_escalated` tool call or an explicit approval state | 740 Hz 90 ms, 50 ms gap, 1040 Hz 90 ms, 50 ms gap, 740 Hz 140 ms |
 
 ## No Sound
 

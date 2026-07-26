@@ -30,7 +30,7 @@ It owns:
 - Polling `GET /state`.
 - Posting button events to `/event`.
 - Blue front-button controls: long press records push-to-talk audio; for 30 seconds after a successful recording, single click sends Return and double click stops the current Codex turn. Clicks outside that window are ignored by both firmware and Bridge.
-- Right-side `KEY2` control: GPIO 12 single click switches locally between the dashboard and Roxy pet view without posting a Bridge event.
+- Right-side `KEY2` control: GPIO 12 single/double click switches views and confirms/rejects a pending approval; a 700 ms long press asks the Bridge to clear the latest pasted voice draft.
 - Roxy animation selection from the same Codex state used by the dashboard: idle/offline, running, approval, done, and error.
 - 16 kHz / 16-bit / mono PCM recording from the StickS3 microphone.
 - Uploading PCM to `/recording/audio`.

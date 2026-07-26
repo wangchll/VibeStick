@@ -10,7 +10,7 @@ The project does not currently claim support for other devices because the UI la
 
 - Screen: LVGL UI on the StickS3 display.
 - Blue front button (`KEY1`, GPIO 11): long press records push-to-talk audio until release. For 30 seconds after a successful recording, single click sends the focused draft and double click stops the current Codex turn.
-- Large right-side button (`KEY2`, GPIO 12): single click switches locally between the Codex dashboard and the Roxy pet view.
+- Large right-side button (`KEY2`, GPIO 12): single/double click switches views and handles pending approval; a 700 ms long press clears the latest pasted voice draft.
 - Corner power button: device power and firmware download-mode control; it is not an application input and is distinct from `KEY2`.
 - Microphone: StickS3 microphone captured as 16 kHz / 16-bit / mono PCM.
 - Speaker: ES8311 / I2S playback for generated agent status tones.
