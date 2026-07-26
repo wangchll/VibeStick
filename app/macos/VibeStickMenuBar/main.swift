@@ -69,6 +69,12 @@ let idlePresets: [(label: String, seconds: Int)] = [
     ("5 分钟", 300),
 ]
 
+enum VoiceInputMode: Equatable {
+    case remote
+    case localWhisper
+    case wechatInput
+}
+
 /// POST JSON 到本机 bridge（默认端口 8765）。用于下发可配置项，如息屏时间。
 func postJSON(_ path: String, _ payload: [String: Any]) {
     guard let url = URL(string: "http://127.0.0.1:8765\(path)") else { return }
@@ -114,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var hudItem: NSMenuItem?
     var asrRemoteItem: NSMenuItem?
     var asrLocalItem: NSMenuItem?
+    var asrWeChatItem: NSMenuItem?
     var idleItems: [NSMenuItem] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -162,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(hudItem!)
         menu.addItem(.separator())
 
-        // 语音识别模式：在菜单栏里随时切换远端大模型 / 本机离线识别。
+        // 三种模式互斥；微信输入法是独立外部输入方式，不覆盖 Whisper 配置。
         let asrSub = NSMenu(title: "语音识别")
         let remoteItem = NSMenuItem(
             title: "远端大模型（SiliconFlow 云端）",
@@ -176,13 +183,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             keyEquivalent: ""
         )
         localItem.target = self
+        let wechatItem = NSMenuItem(
+            title: "微信语音输入法（长按 Fn）",
+            action: #selector(selectWeChatInput),
+            keyEquivalent: ""
+        )
+        wechatItem.target = self
         asrSub.addItem(remoteItem)
         asrSub.addItem(localItem)
+        asrSub.addItem(wechatItem)
         let asrTop = NSMenuItem(title: "语音识别模式", action: nil, keyEquivalent: "")
         asrTop.submenu = asrSub
         menu.addItem(asrTop)
         asrRemoteItem = remoteItem
         asrLocalItem = localItem
+        asrWeChatItem = wechatItem
 
         // 息屏时间：通过 Mac 客户端下发，固件轮询 bridge /state 后即时生效（无需重烧固件）。
         let idleSub = NSMenu(title: "息屏时间")
@@ -233,9 +248,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         projectItem?.isHidden = project.isEmpty
         bridgeItem?.title = "Bridge 服务：\(bridgeOn ? "● 开" : "○ 关")"
         hudItem?.title = "HUD 浮层：\(hudOn ? "● 开" : "○ 关")"
-        let asrLocal = currentASRProviderIsLocal()
-        asrRemoteItem?.state = asrLocal ? .off : .on
-        asrLocalItem?.state = asrLocal ? .on : .off
+        let voiceMode = currentVoiceInputMode()
+        asrRemoteItem?.state = voiceMode == .remote ? .on : .off
+        asrLocalItem?.state = voiceMode == .localWhisper ? .on : .off
+        asrWeChatItem?.state = voiceMode == .wechatInput ? .on : .off
         let curIdle = currentScreenIdleSeconds()
         for it in idleItems {
             if let secs = it.representedObject as? Int {
@@ -267,24 +283,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func quitMenuBar() { NSApp.terminate(nil) }
 
     // MARK: - 语音识别模式切换
-    @objc func selectRemoteASR() { setASRProvider("openai-compatible") }
-    @objc func selectLocalASR() { setASRProvider("whisper-local") }
+    @objc func selectRemoteASR() { setVoiceInputMode(.remote) }
+    @objc func selectLocalASR() { setVoiceInputMode(.localWhisper) }
+    @objc func selectWeChatInput() { setVoiceInputMode(.wechatInput) }
     @objc func selectScreenIdle(_ sender: NSMenuItem) {
         guard let secs = sender.representedObject as? Int else { return }
         postJSON("/api/screen_idle", ["seconds": secs])
         refreshStatus()
     }
 
-    /// 读取 .env 中 VIBE_STICK_ASR_PROVIDER 的当前值。
-    func currentASRProviderIsLocal() -> Bool {
-        readEnvValue("VIBE_STICK_ASR_PROVIDER") == "whisper-local"
+    func currentVoiceInputMode() -> VoiceInputMode {
+        if readEnvValue("VIBE_STICK_EXTERNAL_INPUT_PROVIDER") == "wechat-input" {
+            return .wechatInput
+        }
+        return readEnvValue("VIBE_STICK_ASR_PROVIDER") == "whisper-local"
+            ? .localWhisper
+            : .remote
     }
 
-    /// 写入 .env 中的某个键（保留注释与其余配置），并让 Bridge 重新加载。
-    func setASRProvider(_ value: String) {
-        writeEnvValue("VIBE_STICK_ASR_PROVIDER", value)
-        // 同时清掉本地转写钩子，确保选择生效且不被劫持。
-        writeEnvValue("VIBE_STICK_TRANSCRIBE_CMD", "")
+    /// 微信模式只启用 external-input；原有远程/Whisper 配置仍保留。
+    /// 选择远程或 Whisper 时显式关闭 external-input，确保三种模式互斥。
+    func setVoiceInputMode(_ mode: VoiceInputMode) {
+        switch mode {
+        case .remote:
+            writeEnvValue("VIBE_STICK_EXTERNAL_INPUT_PROVIDER", "")
+            writeEnvValue("VIBE_STICK_ASR_PROVIDER", "openai-compatible")
+            writeEnvValue("VIBE_STICK_TRANSCRIBE_CMD", "")
+        case .localWhisper:
+            writeEnvValue("VIBE_STICK_EXTERNAL_INPUT_PROVIDER", "")
+            writeEnvValue("VIBE_STICK_ASR_PROVIDER", "whisper-local")
+            writeEnvValue("VIBE_STICK_TRANSCRIBE_CMD", "")
+        case .wechatInput:
+            writeEnvValue("VIBE_STICK_EXTERNAL_INPUT_PROVIDER", "wechat-input")
+        }
         restartBridge()
         refreshStatus()
     }
