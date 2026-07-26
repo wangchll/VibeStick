@@ -158,6 +158,7 @@ class BridgeStateStore:
         self._manual_status_until = 0.0
         self._post_recording_action_until = 0.0
         self._last_session_pasted = False
+        self._last_approval_action_at = 0.0
         self._state = self._load_state()
         self._alert_tracking_initialized = False
         self._seen_alert_event_ids: set[str] = set()
@@ -227,21 +228,27 @@ class BridgeStateStore:
                 else:
                     self._log_ignored_button_action("clear_draft", "no pasted voice draft")
             elif event_name == "button_approval_confirm":
-                if self._approval_pending_locked():
+                # The JSONL stream does not reliably distinguish a prompt that
+                # is visible from an escalated call auto-approved by Codex.
+                # Let Accessibility verify the real UI instead of gating the
+                # physical button on a potentially stale inferred state.
+                if self._approval_action_debounced_locked():
+                    self._log_ignored_button_action("approval_confirm", "duplicate side click")
+                else:
                     result = self.input_injector.approve_codex_task()
                     self._log_button_action("approval_confirm", result)
                     if result.success:
+                        self._last_approval_action_at = time.monotonic()
                         self._clear_approval_pending_locked()
-                else:
-                    self._log_ignored_button_action("approval_confirm", "no pending approval")
             elif event_name == "button_approval_cancel":
-                if self._approval_pending_locked():
+                if self._approval_action_debounced_locked():
+                    self._log_ignored_button_action("approval_cancel", "duplicate side click")
+                else:
                     result = self.input_injector.cancel_codex_task()
                     self._log_button_action("approval_cancel", result)
                     if result.success:
+                        self._last_approval_action_at = time.monotonic()
                         self._clear_approval_pending_locked()
-                else:
-                    self._log_ignored_button_action("approval_cancel", "no pending approval")
             self._save_state_locked()
             return self._state_snapshot_locked()
 
@@ -287,6 +294,10 @@ class BridgeStateStore:
             self._post_recording_action_until = 0.0
             return False
         return True
+
+    def _approval_action_debounced_locked(self) -> bool:
+        last_action = getattr(self, "_last_approval_action_at", 0.0)
+        return last_action > 0.0 and time.monotonic() - last_action < 0.5
 
     def _last_session_pasted_locked(self) -> bool:
         # True once a recording has ended in a pasted/transcribed state. This

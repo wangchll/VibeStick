@@ -708,7 +708,7 @@ class CodexProviderTests(unittest.TestCase):
                 self.assertEqual(observation.status, expected_status)
                 self.assertEqual(observation.alert_type, expected_alert_type)
 
-    def test_pending_escalated_tool_call_reports_approval(self) -> None:
+    def test_escalated_tool_call_alone_does_not_report_approval(self) -> None:
         now = datetime.now(timezone.utc)
         tool_call = {
             "timestamp": (now - timedelta(seconds=1)).isoformat(),
@@ -723,8 +723,8 @@ class CodexProviderTests(unittest.TestCase):
 
         observation = self._observe_events([tool_call])
 
-        self.assertEqual(observation.status, AgentStatus.APPROVAL)
-        self.assertEqual(observation.alert_type, "APPROVAL")
+        self.assertNotEqual(observation.status, AgentStatus.APPROVAL)
+        self.assertEqual(observation.alert_type, "")
 
     def test_completed_escalated_tool_call_clears_approval(self) -> None:
         now = datetime.now(timezone.utc)

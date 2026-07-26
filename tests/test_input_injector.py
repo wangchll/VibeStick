@@ -44,6 +44,31 @@ class MacInputInjectorTests(unittest.TestCase):
         self.assertIn('tell application "System Events" to keystroke "a" using command down', args)
         self.assertIn('tell application "System Events" to key code 51', args)
 
+    @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Darwin")
+    @mock.patch("vibe_stick.paste.input_injector.subprocess.run")
+    def test_approval_clicks_accessibility_button_instead_of_sending_return(
+        self, run: mock.Mock, _system: mock.Mock
+    ) -> None:
+        run.return_value = subprocess.CompletedProcess([], 0, "VIBESTICK_CLICKED:Allow once\n", "")
+
+        result = MacPasteInjector().approve_codex_task()
+
+        self.assertTrue(result.success)
+        args = run.call_args.args[0]
+        self.assertIn('            perform action "AXPress" of itemRef', args)
+        self.assertNotIn('tell application "System Events" to key code 36', args)
+
+    @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Darwin")
+    @mock.patch("vibe_stick.paste.input_injector.subprocess.run")
+    def test_missing_permission_button_is_reported_as_failure(
+        self, run: mock.Mock, _system: mock.Mock
+    ) -> None:
+        run.return_value = subprocess.CompletedProcess([], 1, "", "No matching button")
+
+        result = MacPasteInjector().cancel_codex_task()
+
+        self.assertFalse(result.success)
+
     @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Linux")
     @mock.patch("vibe_stick.paste.input_injector.subprocess.run")
     def test_keyboard_actions_fail_cleanly_off_macos(self, run: mock.Mock, _system: mock.Mock) -> None:

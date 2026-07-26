@@ -127,12 +127,13 @@ class ButtonActionTests(unittest.TestCase):
 
         self.assertEqual(self.store._state.alert.type, AlertType.APPROVAL)
 
-    def test_side_clicks_are_ignored_without_pending_approval(self) -> None:
+    def test_side_clicks_probe_visible_permission_ui_without_inferred_state(self) -> None:
         self.store.update_from_event({"event": "button_approval_confirm"})
+        self.store._last_approval_action_at = 0.0
         self.store.update_from_event({"event": "button_approval_cancel"})
 
-        self.store.input_injector.approve_codex_task.assert_not_called()
-        self.store.input_injector.cancel_codex_task.assert_not_called()
+        self.store.input_injector.approve_codex_task.assert_called_once_with()
+        self.store.input_injector.cancel_codex_task.assert_called_once_with()
 
     def test_side_long_press_clears_pasted_voice_draft(self) -> None:
         self.store._last_session_pasted = True
