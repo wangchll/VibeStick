@@ -726,6 +726,24 @@ class CodexProviderTests(unittest.TestCase):
         self.assertNotEqual(observation.status, AgentStatus.APPROVAL)
         self.assertEqual(observation.alert_type, "")
 
+    def test_escalated_tool_call_reports_approval_after_confirmation_delay(self) -> None:
+        now = datetime.now(timezone.utc)
+        tool_call = {
+            "timestamp": (now - timedelta(seconds=2)).isoformat(),
+            "type": "response_item",
+            "payload": {
+                "type": "custom_tool_call",
+                "call_id": "call-confirmed-approval",
+                "name": "exec",
+                "input": '{"sandbox_permissions":"require_escalated"}',
+            },
+        }
+
+        observation = self._observe_events([tool_call])
+
+        self.assertEqual(observation.status, AgentStatus.APPROVAL)
+        self.assertEqual(observation.alert_type, "APPROVAL")
+
     def test_completed_escalated_tool_call_clears_approval(self) -> None:
         now = datetime.now(timezone.utc)
         events = [

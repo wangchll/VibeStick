@@ -26,6 +26,7 @@ TAIL_BYTES = 1_500_000
 MAX_SESSION_FILES = 40
 RUNNING_ACTIVITY_WINDOW = timedelta(minutes=4)
 ALERT_ACTIVITY_WINDOW = timedelta(minutes=5)
+APPROVAL_CONFIRMATION_DELAY = timedelta(seconds=1.5)
 QUOTA_STALE_AFTER = timedelta(minutes=30)
 TURN_TERMINAL_TYPES = {
     "task_complete",
@@ -70,6 +71,7 @@ class _CodexSessionSummary:
     turn_lifecycle: tuple[datetime, str, str] | None
     latest_task_started: datetime | None
     latest_alert: tuple[datetime, AgentStatus, str, str, str] | None
+    pending_approval_alert: tuple[datetime, AgentStatus, str, str, str] | None
     latest_quota: tuple[datetime, QuotaSnapshot] | None
 
 
@@ -110,6 +112,13 @@ def observe_codex(project_root: Path) -> LocalCodexObservation:
             or summary.latest_task_started <= summary.latest_alert[0]
         )
     ]
+    current_alerts.extend(
+        summary.pending_approval_alert
+        for summary in summaries
+        if summary.pending_approval_alert is not None
+        and now - summary.pending_approval_alert[0] >= APPROVAL_CONFIRMATION_DELAY
+        and now - summary.pending_approval_alert[0] <= ALERT_ACTIVITY_WINDOW
+    )
     latest_alert: tuple[datetime, AgentStatus, str, str, str] | None = None
     if current_alerts:
         latest_alert = max(current_alerts, key=lambda alert: alert[0])
@@ -178,6 +187,7 @@ def _summarize_session(path: Path) -> _CodexSessionSummary | None:
     latest_task_started: datetime | None = None
     latest_alert: tuple[datetime, AgentStatus, str, str, str] | None = None
     latest_quota: tuple[datetime, QuotaSnapshot] | None = None
+    pending_approval_calls: dict[str, datetime] = {}
 
     for event in events:
         timestamp = _parse_timestamp(event.get("timestamp"))
@@ -189,6 +199,15 @@ def _summarize_session(path: Path) -> _CodexSessionSummary | None:
         payload = payload if isinstance(payload, dict) else {}
         payload_type = str(payload.get("type") or top_type)
         candidate_type = payload_type or top_type
+
+        if candidate_type == "custom_tool_call":
+            call_id = _pending_approval_call_id(payload)
+            if call_id:
+                pending_approval_calls[call_id] = timestamp
+        elif candidate_type == "custom_tool_call_output":
+            call_id = str(payload.get("call_id") or "")
+            if call_id:
+                pending_approval_calls.pop(call_id, None)
 
         if top_type == "turn_context":
             cwd = payload.get("cwd")
@@ -244,6 +263,23 @@ def _summarize_session(path: Path) -> _CodexSessionSummary | None:
             if latest_alert is None or timestamp > latest_alert[0]:
                 latest_alert = candidate_alert
 
+    pending_approval_alert = None
+    if pending_approval_calls:
+        call_id, timestamp = max(pending_approval_calls.items(), key=lambda item: item[1])
+        pending_approval_alert = (
+            timestamp,
+            AgentStatus.APPROVAL,
+            "APPROVAL",
+            "Codex is waiting for approval",
+            _alert_event_id(
+                path,
+                events,
+                alert_kind="APPROVAL",
+                turn_id=call_id,
+                timestamp=timestamp,
+            ),
+        )
+
     return _CodexSessionSummary(
         path=str(path),
         latest_event=latest_event,
@@ -251,8 +287,21 @@ def _summarize_session(path: Path) -> _CodexSessionSummary | None:
         turn_lifecycle=turn_lifecycle,
         latest_task_started=latest_task_started,
         latest_alert=latest_alert,
+        pending_approval_alert=pending_approval_alert,
         latest_quota=latest_quota,
     )
+
+
+def _pending_approval_call_id(payload: dict[str, Any]) -> str:
+    if str(payload.get("name") or "") != "exec":
+        return ""
+    input_text = payload.get("input")
+    if not isinstance(input_text, str):
+        return ""
+    compact = "".join(input_text.split())
+    if '"sandbox_permissions":"require_escalated"' not in compact:
+        return ""
+    return str(payload.get("call_id") or "")
 
 
 def _latest_summary(
