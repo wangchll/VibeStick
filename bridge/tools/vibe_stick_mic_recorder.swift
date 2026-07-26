@@ -1,6 +1,7 @@
 import AVFoundation
 import Darwin
 import Foundation
+// (build embeds an Info.plist via -sectcreate so TCC accepts NSMicrophoneUsageDescription)
 
 final class VibeStickMicRecorder: NSObject, AVAudioRecorderDelegate {
     private let outputURL: URL

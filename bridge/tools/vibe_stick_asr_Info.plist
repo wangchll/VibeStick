@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.vibestick.asrhelper</string>
+    <key>CFBundleName</key>
+    <string>VibeStick On-Device Speech</string>
+    <key>CFBundleExecutable</key>
+    <string>vibe_stick_asr</string>
+    <key>CFBundleDisplayName</key>
+    <string>VibeStick 本地语音识别</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>VibeStick 会在你的 Mac 本机离线识别语音，把说话内容转成文字并粘贴。音频不会离开你的电脑，也不会发送给任何服务器。</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>VibeStick 会在本机离线识别音频中的语音内容，不会录制或上传麦克风。</string>
+</dict>
+</plist>

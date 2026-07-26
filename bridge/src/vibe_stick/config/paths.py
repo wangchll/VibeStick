@@ -13,8 +13,19 @@ QUOTA_PATH = APP_SUPPORT_DIR / "quota.json"
 RECORDING_PATH = APP_SUPPORT_DIR / "recording.json"
 HUD_STATE_PATH = APP_SUPPORT_DIR / "hud-state.json"
 RECORDINGS_DIR = APP_SUPPORT_DIR / "Recordings"
-MIC_RECORDER_PATH = APP_SUPPORT_DIR / "vibe_stick_mic_recorder"
+# Both helpers are built as proper .app bundles. macOS TCC only honors the
+# privacy usage-description keys (NSSpeechRecognitionUsageDescription,
+# NSMicrophoneUsageDescription) when they live in a real bundle's
+# Contents/Info.plist; a bare Mach-O (even with an embedded __info_plist
+# section) is killed with EXC_CRASH / SIGABRT on first privacy access.
+MIC_RECORDER_PATH = (
+    APP_SUPPORT_DIR / "vibe_stick_mic_recorder.app" / "Contents" / "MacOS" / "vibe_stick_mic_recorder"
+)
 MIC_RECORDER_STAMP_PATH = APP_SUPPORT_DIR / "vibe_stick_mic_recorder.sha256"
+APPLE_ASR_PATH = (
+    APP_SUPPORT_DIR / "vibe_stick_asr.app" / "Contents" / "MacOS" / "vibe_stick_asr"
+)
+APPLE_ASR_STAMP_PATH = APP_SUPPORT_DIR / "vibe_stick_asr.sha256"
 
 
 def ensure_app_support() -> Path:
@@ -40,4 +51,6 @@ def ensure_app_support() -> Path:
                 continue
     ensure_private_file(MIC_RECORDER_PATH, executable=True)
     ensure_private_file(MIC_RECORDER_STAMP_PATH)
+    ensure_private_file(APPLE_ASR_PATH, executable=True)
+    ensure_private_file(APPLE_ASR_STAMP_PATH)
     return APP_SUPPORT_DIR

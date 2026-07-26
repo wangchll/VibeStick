@@ -726,7 +726,11 @@ class CodexProviderTests(unittest.TestCase):
             "type": "token_count",
             "rate_limits": {
                 "limit_id": "codex",
-                "primary": {"used_percent": 97, "window_minutes": 10080},
+                "primary": {
+                    "used_percent": 97,
+                    "window_minutes": 10080,
+                    "resets_at": 1785664678,
+                },
             },
         }
 
@@ -734,6 +738,43 @@ class CodexProviderTests(unittest.TestCase):
 
         self.assertIsNotNone(quota)
         self.assertEqual(quota.quota_7d_remaining, 3)
+        self.assertEqual(quota.quota_remaining, 3)
+        self.assertEqual(quota.quota_window_minutes, 10080)
+        self.assertEqual(quota.quota_resets_at, 1785664678)
+
+    def test_two_rate_limit_windows_keep_legacy_dual_display(self) -> None:
+        now = datetime.now(timezone.utc)
+        payload = {
+            "type": "token_count",
+            "rate_limits": {
+                "limit_id": "codex",
+                "primary": {"used_percent": 20, "window_minutes": 300},
+                "secondary": {"used_percent": 30, "window_minutes": 10080},
+            },
+        }
+
+        quota = local_observer._quota_from_payload(payload, now, now)
+
+        self.assertIsNotNone(quota)
+        self.assertEqual(quota.quota_5h_remaining, 80)
+        self.assertEqual(quota.quota_7d_remaining, 70)
+        self.assertIsNone(quota.quota_remaining)
+
+    def test_single_nonstandard_window_uses_dynamic_quota_fields(self) -> None:
+        now = datetime.now(timezone.utc)
+        payload = {
+            "type": "token_count",
+            "rate_limits": {
+                "limit_id": "codex",
+                "primary": {"used_percent": 25, "window_minutes": 43200},
+            },
+        }
+
+        quota = local_observer._quota_from_payload(payload, now, now)
+
+        self.assertIsNotNone(quota)
+        self.assertEqual(quota.quota_remaining, 75)
+        self.assertEqual(quota.quota_window_minutes, 43200)
 
 
 if __name__ == "__main__":

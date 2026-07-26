@@ -57,6 +57,10 @@ Returns the current bridge state:
     "active_conversations": 2,
     "quota_5h_remaining": 53,
     "quota_7d_remaining": 93,
+    "quota_remaining": 93,
+    "quota_window_minutes": 10080,
+    "quota_resets_at": 1785664678,
+    "quota_reset_after_seconds": 518400,
     "quota_updated_at": "13:01",
     "quota_stale": false
   },
@@ -66,6 +70,10 @@ Returns the current bridge state:
     "active_conversations": 2,
     "quota_5h_remaining": 53,
     "quota_7d_remaining": 93,
+    "quota_remaining": 93,
+    "quota_window_minutes": 10080,
+    "quota_resets_at": 1785664678,
+    "quota_reset_after_seconds": 518400,
     "quota_updated_at": "13:01",
     "quota_stale": false
   },
@@ -81,7 +89,9 @@ Returns the current bridge state:
 
 `battery` is intentionally `null` from the bridge. The StickS3 displays its local PMIC battery reading.
 
-`active_provider` is fixed to `codex`, and the normalized `provider` block mirrors the `codex` block for older firmware. `active_conversations` is the number of running root conversations, clamped to `0` through `99`; Codex subagent sessions are excluded. The firmware shows this number only while Codex is `RUNNING`. `quota_5h_remaining` and `quota_7d_remaining` are remaining percentages from `0` to `100`; `null` means unknown and the firmware renders `--%`. Current firmware reads the `codex` block directly.
+`active_provider` is fixed to `codex`, and the normalized `provider` block mirrors the `codex` block for older firmware. `active_conversations` is the number of running root conversations, clamped to `0` through `99`; Codex subagent sessions are excluded. The firmware shows this number only while Codex is `RUNNING`.
+
+`quota_remaining` is the remaining percentage for the single current Codex usage window, `quota_window_minutes` describes that window, `quota_resets_at` is its Unix reset timestamp, and `quota_reset_after_seconds` is a bridge-calculated countdown for devices without a wall clock. With a weekly-only window, firmware renders `WEEK <percent>` and `RESET <days/hours>`; the reset progress bar shows the remaining time as a proportion of the full window. If Codex reports both the legacy 5-hour and 7-day windows, the generic fields are `null` and firmware retains the `5H`/`7D` display. `quota_5h_remaining` and `quota_7d_remaining` remain for backward compatibility. An unknown percentage is rendered as `--%`.
 
 ## GET /health
 

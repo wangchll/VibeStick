@@ -87,7 +87,7 @@ HTTP traffic is not encrypted. The shared token authorizes protected requests bu
 
 ## Status And Quota
 
-Codex status is inferred from local Codex process/session activity and recent session event payloads. Quota is inferred from `token_count` events containing `rate_limits`. This is a local observation strategy, not an official quota API.
+Codex status is inferred from local Codex process/session activity and recent session event payloads. Quota is inferred from `token_count` events containing `rate_limits`. The display follows the reported window dynamically: a single weekly window is shown as remaining usage plus reset countdown, while legacy dual 5-hour/7-day windows remain supported. This is a local observation strategy, not an official quota API.
 
 Codex observation covers all user-started root conversations visible in local session data. Background subagents are excluded. A completion in any root conversation can publish an alert even while another conversation keeps the aggregate screen status at `RUNNING`.
 

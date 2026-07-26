@@ -29,6 +29,9 @@ class ProviderObservation:
     alert_type: str
     alert_message: str
     alert_event_id: str
+    quota_remaining: int | None = None
+    quota_window_minutes: int | None = None
+    quota_resets_at: int | None = None
     latest_event_timestamp: datetime | None = None
     alert_events: tuple[ProviderAlert, ...] = ()
     active_conversations: int = 0

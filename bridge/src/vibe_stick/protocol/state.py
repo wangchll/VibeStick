@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import asdict, dataclass
 from datetime import datetime
+import time
 from enum import StrEnum
 from typing import Any
 
@@ -33,6 +34,9 @@ class CodexState:
     quota_updated_at: str = ""
     quota_stale: bool = False
     active_conversations: int = 0
+    quota_remaining: int | None = None
+    quota_window_minutes: int | None = None
+    quota_resets_at: int | None = None
 
 
 @dataclass
@@ -47,6 +51,9 @@ class ProviderState:
     quota_updated_at: str = ""
     quota_stale: bool = False
     active_conversations: int = 0
+    quota_remaining: int | None = None
+    quota_window_minutes: int | None = None
+    quota_resets_at: int | None = None
 
 
 @dataclass
@@ -66,11 +73,13 @@ class VibeStickState:
     provider: ProviderState
     codex: CodexState
     alert: AlertState
+    screen_idle_off_ms: int = 60
 
     def to_jsonable(self) -> dict[str, Any]:
         data = asdict(self)
         data["battery"] = None
         data["active_provider"] = "codex"
+        data["screen_idle_off_ms"] = self.screen_idle_off_ms
         data["provider"]["id"] = "codex"
         data["provider"]["display_name"] = "Codex"
         data["provider"]["project"] = _bounded_utf8(self.provider.project, 36)
@@ -91,6 +100,11 @@ class VibeStickState:
         data["codex"]["active_conversations"] = _active_conversation_count(
             self.codex.active_conversations
         )
+        for block_name in ("provider", "codex"):
+            resets_at = data[block_name].get("quota_resets_at")
+            data[block_name]["quota_reset_after_seconds"] = (
+                max(0, int(resets_at - time.time())) if resets_at else None
+            )
         data["alert"]["event_id"] = _bounded_identifier(self.alert.event_id, 55)
         data["alert"]["message"] = _bounded_utf8(self.alert.message, 72)
         data["alert"]["type"] = self.alert.type.value
@@ -131,12 +145,16 @@ def state_from_dict(data: object) -> VibeStickState:
             active_conversations=_active_conversation_count(
                 codex_data.get("active_conversations")
             ),
+            quota_remaining=_percent_or_none(codex_data.get("quota_remaining")),
+            quota_window_minutes=_positive_int_or_none(codex_data.get("quota_window_minutes")),
+            quota_resets_at=_positive_int_or_none(codex_data.get("quota_resets_at")),
         ),
         alert=AlertState(
             event_id=str(alert_data.get("event_id") or ""),
             type=_alert_type(alert_data.get("type")),
             message=str(alert_data.get("message") or ""),
         ),
+        screen_idle_off_ms=_clamp_seconds(data.get("screen_idle_off_ms")),
     )
 
 
@@ -155,6 +173,9 @@ def _provider_state_from_dict(provider_data: dict[str, Any], codex_data: dict[st
             active_conversations=_active_conversation_count(
                 provider_data.get("active_conversations")
             ),
+            quota_remaining=_percent_or_none(provider_data.get("quota_remaining")),
+            quota_window_minutes=_positive_int_or_none(provider_data.get("quota_window_minutes")),
+            quota_resets_at=_positive_int_or_none(provider_data.get("quota_resets_at")),
         )
 
     return ProviderState(
@@ -170,6 +191,9 @@ def _provider_state_from_dict(provider_data: dict[str, Any], codex_data: dict[st
         active_conversations=_active_conversation_count(
             codex_data.get("active_conversations")
         ),
+        quota_remaining=_percent_or_none(codex_data.get("quota_remaining")),
+        quota_window_minutes=_positive_int_or_none(codex_data.get("quota_window_minutes")),
+        quota_resets_at=_positive_int_or_none(codex_data.get("quota_resets_at")),
     )
 
 
@@ -197,6 +221,27 @@ def _percent_or_none(value: object) -> int | None:
     except (OverflowError, TypeError, ValueError):
         return None
     return max(0, min(100, number))
+
+
+def _clamp_seconds(value: object) -> int:
+    """Screen idle timeout in seconds, clamped to a sane range [5, 3600]."""
+    if value is None or isinstance(value, bool):
+        return 60
+    try:
+        number = int(value)
+    except (OverflowError, TypeError, ValueError):
+        return 60
+    return max(5, min(3600, number))
+
+
+def _positive_int_or_none(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 def _active_conversation_count(value: object) -> int:
@@ -252,7 +297,11 @@ def default_state() -> VibeStickState:
             quota_updated_at=codex.quota_updated_at,
             quota_stale=codex.quota_stale,
             active_conversations=codex.active_conversations,
+            quota_remaining=codex.quota_remaining,
+            quota_window_minutes=codex.quota_window_minutes,
+            quota_resets_at=codex.quota_resets_at,
         ),
         codex=codex,
         alert=AlertState(event_id="", type=AlertType.NONE, message=""),
+        screen_idle_off_ms=60,
     )

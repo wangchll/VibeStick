@@ -4,7 +4,7 @@
 
 ![VibeStick voice-input flow showing StickS3 recording states and the Mac HUD](assets/brand/voice-input-preview.png)
 
-VibeStick turns an M5Stack StickS3 into a Codex desktop companion with task status, active-conversation count, 5H/7D usage, alerts, and speech transcription into your Mac.
+VibeStick turns an M5Stack StickS3 into a Codex desktop companion with task status, active-conversation count, the current usage window and reset countdown, alerts, and speech transcription into your Mac.
 
 VibeStick targets M5Stack StickS3 hardware and is not an official M5Stack project.
 

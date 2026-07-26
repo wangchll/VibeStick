@@ -78,4 +78,11 @@ else
 fi
 
 "$TARGET_DIR/install.sh" esp32s3
+
+# 显式确保 cmake / ninja 就位：install.sh 偶尔会因网络抖动跳过这两个
+# 构建必需工具，导致后续 `idf.py build` 报 "cmake must be available" / 退出码 2。
+if [ -x "$TARGET_DIR/tools/idf_tools.py" ]; then
+  python "$TARGET_DIR/tools/idf_tools.py" install cmake ninja >/dev/null 2>&1 || true
+fi
+
 printf '%s\n' "ESP-IDF $VERSION toolchain is ready."

@@ -157,6 +157,7 @@ class BridgeStateStore:
         self._project_root = _resolve_project_root()
         self._manual_status_until = 0.0
         self._post_recording_action_until = 0.0
+        self._last_session_pasted = False
         self._state = self._load_state()
         self._alert_tracking_initialized = False
         self._seen_alert_event_ids: set[str] = set()
@@ -168,6 +169,9 @@ class BridgeStateStore:
         self._state.codex.quota_7d_remaining = quota.quota_7d_remaining
         self._state.codex.quota_updated_at = quota.quota_updated_at
         self._state.codex.quota_stale = quota.quota_stale
+        self._state.codex.quota_remaining = quota.quota_remaining
+        self._state.codex.quota_window_minutes = quota.quota_window_minutes
+        self._state.codex.quota_resets_at = quota.quota_resets_at
         self.recording = RecordingController(RECORDING_PATH)
         self.input_injector = MacPasteInjector()
         hide_hud()
@@ -179,6 +183,14 @@ class BridgeStateStore:
             self._save_state_locked()
             return self._state_snapshot_locked()
 
+    def set_screen_idle_seconds(self, seconds: int) -> int:
+        """Persist the screen idle timeout (seconds); firmware picks it up on its next /state poll."""
+        with self._lock:
+            clamped = max(5, min(3600, int(seconds)))
+            self._state.screen_idle_off_ms = clamped
+            self._save_state_locked()
+            return clamped
+
     def update_from_event(self, event: dict[str, Any]) -> VibeStickState:
         with self._lock:
             event_name = str(event.get("event") or "")
@@ -187,7 +199,13 @@ class BridgeStateStore:
                 self._set_codex_status(str(requested_status), str(event.get("message") or ""))
                 self._manual_status_until = time.monotonic() + MANUAL_STATUS_SECONDS
             elif event_name == "button_short":
-                if self._post_recording_action_available_locked():
+                # Front button "send": re-press Enter to submit the text that
+                # was just pasted/transcribed. This must work whenever the last
+                # recording actually produced pasted text -- NOT only within a
+                # fixed 30s window, otherwise a slow reviewer (or a screen that
+                # was asleep) could never send. We still require a successful
+                # pasted/transcribed session so we don't fire Enter at random.
+                if self._last_session_pasted_locked():
                     self._state.alert = AlertState(event_id="", type=AlertType.NONE, message="")
                     self._log_button_action("send", self.input_injector.press_enter())
                 else:
@@ -197,6 +215,18 @@ class BridgeStateStore:
                     self._log_button_action("pause", self.input_injector.pause_current_codex_task())
                 else:
                     self._log_ignored_button_action("pause")
+            elif event_name == "button_approval_confirm":
+                if self._state.alert.type == AlertType.APPROVAL:
+                    self._state.alert = AlertState(event_id="", type=AlertType.NONE, message="")
+                    self._log_button_action("approval_confirm", self.input_injector.approve_codex_task())
+                else:
+                    self._log_ignored_button_action("approval_confirm")
+            elif event_name == "button_approval_cancel":
+                if self._state.alert.type == AlertType.APPROVAL:
+                    self._state.alert = AlertState(event_id="", type=AlertType.NONE, message="")
+                    self._log_button_action("approval_cancel", self.input_injector.cancel_codex_task())
+                else:
+                    self._log_ignored_button_action("approval_cancel")
             self._save_state_locked()
             return self._state_snapshot_locked()
 
@@ -222,6 +252,12 @@ class BridgeStateStore:
             self._post_recording_action_until = 0.0
             return False
         return True
+
+    def _last_session_pasted_locked(self) -> bool:
+        # True once a recording has ended in a pasted/transcribed state. This
+        # lets the front-button "send" work on demand (no time window) while
+        # still refusing to send when the last recording produced nothing.
+        return getattr(self, "_last_session_pasted", False)
 
     def refresh_quota(self) -> VibeStickState:
         with self._lock:
@@ -250,8 +286,10 @@ class BridgeStateStore:
                 self._post_recording_action_until = (
                     time.monotonic() + POST_RECORDING_ACTION_WINDOW_SECONDS
                 )
+                self._last_session_pasted = True
             else:
                 self._post_recording_action_until = 0.0
+                self._last_session_pasted = False
         return {"recording": session.to_public_jsonable(), "state": state}
 
     def upload_recording_audio(
@@ -345,12 +383,19 @@ class BridgeStateStore:
             self._seen_alert_event_ids.discard(order.popleft())
 
     def _apply_codex_quota(self, observation: ProviderObservation, *, force_stale: bool = False) -> None:
-        if observation.quota_5h_remaining is not None or observation.quota_7d_remaining is not None:
+        if (
+            observation.quota_remaining is not None
+            or observation.quota_5h_remaining is not None
+            or observation.quota_7d_remaining is not None
+        ):
             refreshed = QuotaSnapshot(
                 quota_5h_remaining=observation.quota_5h_remaining,
                 quota_7d_remaining=observation.quota_7d_remaining,
                 quota_updated_at=observation.quota_updated_at,
                 quota_stale=observation.quota_stale,
+                quota_remaining=observation.quota_remaining,
+                quota_window_minutes=observation.quota_window_minutes,
+                quota_resets_at=observation.quota_resets_at,
             )
             save_quota(QUOTA_PATH, refreshed)
         else:
@@ -359,8 +404,15 @@ class BridgeStateStore:
                 quota_7d_remaining=self._state.codex.quota_7d_remaining,
                 quota_updated_at=self._state.codex.quota_updated_at,
                 quota_stale=self._state.codex.quota_stale,
+                quota_remaining=self._state.codex.quota_remaining,
+                quota_window_minutes=self._state.codex.quota_window_minutes,
+                quota_resets_at=self._state.codex.quota_resets_at,
             )
-            if existing.quota_5h_remaining is None and existing.quota_7d_remaining is None:
+            if (
+                existing.quota_remaining is None
+                and existing.quota_5h_remaining is None
+                and existing.quota_7d_remaining is None
+            ):
                 refreshed = existing
             else:
                 refreshed = _stale_quota(existing)
@@ -371,6 +423,9 @@ class BridgeStateStore:
         observation.quota_7d_remaining = refreshed.quota_7d_remaining
         observation.quota_updated_at = refreshed.quota_updated_at
         observation.quota_stale = refreshed.quota_stale
+        observation.quota_remaining = refreshed.quota_remaining
+        observation.quota_window_minutes = refreshed.quota_window_minutes
+        observation.quota_resets_at = refreshed.quota_resets_at
 
     def _set_codex_status(self, raw_status: str, message: str) -> None:
         try:
@@ -503,6 +558,10 @@ def make_handler(
                 elif parsed.path == "/recording/stop":
                     body = self._read_json_body()
                     self._send_json(store.stop_recording(body))
+                elif parsed.path == "/api/screen_idle":
+                    body = self._read_json_body()
+                    applied = store.set_screen_idle_seconds(int(body.get("seconds", 60)))
+                    self._send_json({"ok": True, "screen_idle_off_ms": applied})
                 else:
                     self._send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
             except RequestBodyError as exc:
@@ -747,6 +806,9 @@ def _stale_quota(existing: QuotaSnapshot) -> QuotaSnapshot:
         quota_7d_remaining=existing.quota_7d_remaining,
         quota_updated_at=existing.quota_updated_at,
         quota_stale=True,
+        quota_remaining=existing.quota_remaining,
+        quota_window_minutes=existing.quota_window_minutes,
+        quota_resets_at=existing.quota_resets_at,
     )
 
 
@@ -812,6 +874,9 @@ def _codex_state_from_observation(observation: ProviderObservation) -> CodexStat
         quota_updated_at=observation.quota_updated_at,
         quota_stale=observation.quota_stale,
         active_conversations=observation.active_conversations,
+        quota_remaining=observation.quota_remaining,
+        quota_window_minutes=observation.quota_window_minutes,
+        quota_resets_at=observation.quota_resets_at,
     )
 
 
@@ -827,6 +892,9 @@ def _provider_state_from_observation(observation: ProviderObservation) -> Provid
         quota_updated_at=observation.quota_updated_at,
         quota_stale=observation.quota_stale,
         active_conversations=observation.active_conversations,
+        quota_remaining=observation.quota_remaining,
+        quota_window_minutes=observation.quota_window_minutes,
+        quota_resets_at=observation.quota_resets_at,
     )
 
 

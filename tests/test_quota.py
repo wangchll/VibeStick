@@ -34,6 +34,20 @@ class QuotaTests(unittest.TestCase):
 
         self.assertEqual(quota, QuotaSnapshot(53, 93, "13:01", False))
 
+    def test_generic_quota_window_round_trips(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "quota.json"
+            expected = QuotaSnapshot(
+                quota_7d_remaining=99,
+                quota_updated_at="13:01",
+                quota_remaining=99,
+                quota_window_minutes=10080,
+                quota_resets_at=1785664678,
+            )
+            save_quota(path, expected)
+
+            self.assertEqual(load_quota(path), expected)
+
     def test_non_object_quota_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "quota.json"

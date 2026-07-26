@@ -2,6 +2,15 @@
 set -eu
 umask 077
 
+# --- unified diagnostic logging -------------------------------------------
+# Mirror ALL stdout+stderr to this log so a failure is never a silent
+# "exit code 1". WorkBuddy reads /tmp/vibestick-install.log directly.
+LOG="/tmp/vibestick-install.log"
+: > "$LOG"
+exec 1>>"$LOG" 2>&1
+echo "=== VibeStick install.sh started: $(date) ==="
+echo "SCRIPT=$0"
+
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 SETUP_PATH="$ROOT_DIR/scripts/setup.sh"
 ENV_PATH="$ROOT_DIR/.env"
@@ -14,6 +23,11 @@ HUD_PLIST_PATH="$LAUNCH_AGENTS_DIR/com.vibestick.hud.plist"
 RUNNER_PATH="$CONFIG_DIR/run-bridge.sh"
 HUD_BINARY_PATH="$CONFIG_DIR/VibeStickHUD"
 HUD_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickHUD/main.swift"
+MENUBAR_PLIST_PATH="$LAUNCH_AGENTS_DIR/com.vibestick.menubar.plist"
+MENUBAR_APP_NAME="VibeStickMenuBar.app"
+MENUBAR_APP_PATH="$CONFIG_DIR/$MENUBAR_APP_NAME"
+MENUBAR_BINARY_PATH="$MENUBAR_APP_PATH/Contents/MacOS/VibeStickMenuBar"
+MENUBAR_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickMenuBar/main.swift"
 DOMAIN="gui/$(id -u)"
 
 STAGING_DIR=""
@@ -187,32 +201,42 @@ restore_if_present() {
 remove_deployed_payload() {
   rm -rf "$RUNTIME_DIR"
   rm -f "$CONFIG_DIR/.env" "$RUNNER_PATH" "$HUD_BINARY_PATH"
-  rm -f "$PLIST_PATH" "$HUD_PLIST_PATH"
+  rm -rf "$MENUBAR_APP_PATH"
+  rm -f "$PLIST_PATH" "$HUD_PLIST_PATH" "$MENUBAR_PLIST_PATH"
 }
 
 rollback_deployment() {
   printf '%s\n' "Install failed; restoring the previous VibeStick deployment." >&2
   launchctl bootout "$DOMAIN" "$PLIST_PATH" >/dev/null 2>&1 || true
   launchctl bootout "$DOMAIN" "$HUD_PLIST_PATH" >/dev/null 2>&1 || true
+  launchctl bootout "$DOMAIN" "$MENUBAR_PLIST_PATH" >/dev/null 2>&1 || true
   remove_deployed_payload
   restore_if_present runtime "$RUNTIME_DIR"
   restore_if_present installed.env "$CONFIG_DIR/.env"
   restore_if_present run-bridge.sh "$RUNNER_PATH"
   restore_if_present VibeStickHUD "$HUD_BINARY_PATH"
+  restore_if_present VibeStickMenuBar.app "$MENUBAR_APP_PATH"
   restore_if_present bridge.plist "$PLIST_PATH"
   restore_if_present hud.plist "$HUD_PLIST_PATH"
+  restore_if_present menubar.plist "$MENUBAR_PLIST_PATH"
   if [ -f "$PLIST_PATH" ]; then
     launchctl bootstrap "$DOMAIN" "$PLIST_PATH" >/dev/null 2>&1 || true
   fi
   if [ -f "$HUD_PLIST_PATH" ]; then
     launchctl bootstrap "$DOMAIN" "$HUD_PLIST_PATH" >/dev/null 2>&1 || true
   fi
+  if [ -f "$MENUBAR_PLIST_PATH" ]; then
+    launchctl bootstrap "$DOMAIN" "$MENUBAR_PLIST_PATH" >/dev/null 2>&1 || true
+  fi
 }
 
 on_exit() {
   status="$1"
   trap - 0 HUP INT TERM
-  set +e
+  set +e +u
+  if [ "$status" -ne 0 ]; then
+    dump_diagnostics
+  fi
   if [ "$status" -ne 0 ] && [ "$DEPLOYMENT_STARTED" -eq 1 ] && [ "$INSTALL_COMMITTED" -eq 0 ]; then
     rollback_deployment
   fi
@@ -277,13 +301,77 @@ bridge_job_is_running() {
   '
 }
 
+# 重装场景下，旧的 bridge 进程可能仍以非 launchd 方式占用 8765（例如手动
+# 启动的实例），导致 bootstrap 后的新 bridge 无法绑定端口。这里强制清理。
+free_bridge_port() {
+  local port_pid tries=0
+  while [ "$tries" -lt 10 ]; do
+    port_pid="$(lsof -nP -iTCP:8765 -sTCP:LISTEN -t 2>/dev/null | head -1)"
+    [ -z "$port_pid" ] && return 0
+    kill "$port_pid" 2>/dev/null || true
+    sleep 1
+    tries=$((tries + 1))
+  done
+  return 0
+}
+
+diag() {
+  echo "$*" >&2
+  echo "$*" >> /tmp/vibestick-install.log
+}
+
+# Bootstrap a LaunchAgent, tolerating the brief window where launchd may
+# still hold a reference to a just-booted-out job with the same label.
+bootstrap_service() {
+  label="$1"
+  plist="$2"
+  attempt=0
+  while [ "$attempt" -lt 6 ]; do
+    # Ensure a clean slate; a lingering job with the same label would
+    # otherwise make bootstrap fail with "Service already loaded".
+    launchctl bootout "$DOMAIN" "$plist" >/dev/null 2>&1 || true
+    sleep 1
+    if launchctl bootstrap "$DOMAIN" "$plist" 2>/tmp/vibestick-bootstrap.err; then
+      diag "bootstrap ok: $label"
+      return 0
+    fi
+    diag "bootstrap attempt $((attempt + 1)) failed for $label: $(cat /tmp/vibestick-bootstrap.err 2>/dev/null)"
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+  diag "bootstrap FAILED after $attempt attempts for $label"
+  return 1
+}
+
+# Capture the full runtime picture at any hard failure so the cause is
+# visible in /tmp/vibestick-install.log even when the installer hides stderr.
+dump_diagnostics() {
+  diag "----- VibeStick install diagnostics -----"
+  diag "INSTALL_NONCE=${INSTALL_NONCE:-<unset>}"
+  diag "EXPECTED_BRIDGE_VERSION=${EXPECTED_BRIDGE_VERSION:-<unset>}"
+  diag "EXPECTED_BRIDGE_TOKEN set: ${EXPECTED_BRIDGE_TOKEN:+yes}"
+  diag "DEPLOYMENT_STARTED=${DEPLOYMENT_STARTED:-<unset>} INSTALL_COMMITTED=${INSTALL_COMMITTED:-<unset>}"
+  diag "bridge job running: $(bridge_job_is_running && echo yes || echo no)"
+  diag "port 8765 listeners: $(lsof -nP -iTCP:8765 -sTCP:LISTEN -t 2>/dev/null | tr '\n' ' ')"
+  diag "health payload: $(curl -fsS --max-time 2 http://127.0.0.1:8765/health 2>/dev/null || echo '<none>')"
+  diag "state payload: $(curl -fsS --max-time 2 -H "X-Vibe-Stick-Token: ${EXPECTED_BRIDGE_TOKEN:-}" http://127.0.0.1:8765/state 2>/dev/null || echo '<none>')"
+  diag "launchctl bridge: $(launchctl print "$DOMAIN/com.vibestick.bridge" 2>&1 | head -20)"
+  diag "launchctl hud: $(launchctl print "$DOMAIN/com.vibestick.hud" 2>&1 | head -5)"
+  diag "launchctl menubar: $(launchctl print "$DOMAIN/com.vibestick.menubar" 2>&1 | head -5)"
+  diag "bridge.err.log tail: $(tail -n 25 "$CONFIG_DIR/bridge.err.log" 2>/dev/null || echo '<none>')"
+  diag "-----------------------------------------"
+}
+
 trap 'on_exit $?' 0
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 preflight_platform
-"$SETUP_PATH"
+if ! "$SETUP_PATH"; then
+  diag "setup.sh exited non-zero; see its output above for the exact reason."
+  exit 1
+fi
 validate_unique_env_keys "$ENV_PATH"
 validate_unique_secret_defines "$SECRETS_PATH"
 require_bridge_token_ready
@@ -322,10 +410,52 @@ mkdir -p "$STAGING_DIR/runtime" "$BACKUP_DIR"
 chmod 700 "$STAGING_DIR" "$STAGING_DIR/runtime" "$BACKUP_DIR"
 
 cp -R "$ROOT_DIR/bridge" "$STAGING_DIR/runtime/bridge"
+# Force recompile: drop any stale .pyc so the freshly copied whisper-local
+# bridge source (not a cached apple-on-device build) is what actually runs.
+find "$STAGING_DIR/runtime/bridge" -name '__pycache__' -type d -prune -exec rm -rf {} +
 cp "$ENV_PATH" "$STAGING_DIR/installed.env"
 chmod 600 "$STAGING_DIR/installed.env"
+
+# Preflight: the Swift sources must ship inside the installer project, or
+# swiftc fails with an opaque "file not found" that set -e turns into a silent
+# "exit code 1". Fail loudly and early instead.
+for _src in "$HUD_SOURCE_PATH" "$MENUBAR_SOURCE_PATH"; do
+  if [ ! -f "$_src" ]; then
+    echo "Missing required Swift source for build: $_src" >&2
+    echo "The VibeStickProject template is incomplete; reinstall the VibeStick installer." >&2
+    exit 1
+  fi
+done
+
 swiftc "$HUD_SOURCE_PATH" -o "$STAGING_DIR/VibeStickHUD" -framework AppKit -framework QuartzCore
 chmod 700 "$STAGING_DIR/VibeStickHUD"
+mkdir -p "$STAGING_DIR/VibeStickMenuBar.app/Contents/MacOS"
+swiftc "$MENUBAR_SOURCE_PATH" -o "$STAGING_DIR/VibeStickMenuBar.app/Contents/MacOS/VibeStickMenuBar" -framework AppKit -framework Foundation
+cat > "$STAGING_DIR/VibeStickMenuBar.app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>VibeStickMenuBar</string>
+    <key>CFBundleDisplayName</key>
+    <string>VibeStick</string>
+    <key>CFBundleExecutable</key>
+    <string>VibeStickMenuBar</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.vibestick.menubar</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.2.5</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+    <key>LSUIElement</key>
+    <true/>
+</dict>
+</plist>
+PLIST
+chmod 700 "$STAGING_DIR/VibeStickMenuBar.app/Contents/MacOS/VibeStickMenuBar"
 
 {
   printf '%s\n' '#!/usr/bin/env sh' 'set -eu' 'umask 077'
@@ -444,7 +574,31 @@ cat > "$STAGING_DIR/hud.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-chmod 600 "$STAGING_DIR/bridge.plist" "$STAGING_DIR/hud.plist"
+
+cat > "$STAGING_DIR/menubar.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.vibestick.menubar</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$MENUBAR_BINARY_PATH</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$CONFIG_DIR/menubar.log</string>
+  <key>StandardErrorPath</key>
+  <string>$CONFIG_DIR/menubar.err.log</string>
+</dict>
+</plist>
+PLIST
+chmod 600 "$STAGING_DIR/bridge.plist" "$STAGING_DIR/hud.plist" "$STAGING_DIR/menubar.plist"
 
 PYTHONPATH="$STAGING_DIR/runtime/bridge/src" "$PYTHON_BIN" -B -c 'import vibe_stick; import vibe_stick.server.app'
 EXPECTED_BRIDGE_VERSION="$(PYTHONPATH="$STAGING_DIR/runtime/bridge/src" "$PYTHON_BIN" -B -c 'import vibe_stick; print(vibe_stick.__version__)')"
@@ -453,43 +607,63 @@ backup_if_present "$RUNTIME_DIR" runtime
 backup_if_present "$CONFIG_DIR/.env" installed.env
 backup_if_present "$RUNNER_PATH" run-bridge.sh
 backup_if_present "$HUD_BINARY_PATH" VibeStickHUD
+backup_if_present "$MENUBAR_APP_PATH" VibeStickMenuBar.app
 backup_if_present "$PLIST_PATH" bridge.plist
 backup_if_present "$HUD_PLIST_PATH" hud.plist
+backup_if_present "$MENUBAR_PLIST_PATH" menubar.plist
 
 DEPLOYMENT_STARTED=1
 launchctl bootout "$DOMAIN" "$PLIST_PATH" >/dev/null 2>&1 || true
 launchctl bootout "$DOMAIN" "$HUD_PLIST_PATH" >/dev/null 2>&1 || true
+launchctl bootout "$DOMAIN" "$MENUBAR_PLIST_PATH" >/dev/null 2>&1 || true
+free_bridge_port
 remove_deployed_payload
 
 mv "$STAGING_DIR/runtime" "$RUNTIME_DIR"
 mv "$STAGING_DIR/installed.env" "$CONFIG_DIR/.env"
 mv "$STAGING_DIR/run-bridge.sh" "$RUNNER_PATH"
 mv "$STAGING_DIR/VibeStickHUD" "$HUD_BINARY_PATH"
+mv "$STAGING_DIR/VibeStickMenuBar.app" "$MENUBAR_APP_PATH"
 mv "$STAGING_DIR/bridge.plist" "$PLIST_PATH"
 mv "$STAGING_DIR/hud.plist" "$HUD_PLIST_PATH"
+mv "$STAGING_DIR/menubar.plist" "$MENUBAR_PLIST_PATH"
 
-touch "$CONFIG_DIR/bridge.log" "$CONFIG_DIR/bridge.err.log" "$CONFIG_DIR/hud.log" "$CONFIG_DIR/hud.err.log"
+touch "$CONFIG_DIR/bridge.log" "$CONFIG_DIR/bridge.err.log" "$CONFIG_DIR/hud.log" "$CONFIG_DIR/hud.err.log" "$CONFIG_DIR/menubar.log" "$CONFIG_DIR/menubar.err.log"
 chmod 600 "$CONFIG_DIR/.env" "$CONFIG_DIR/bridge.log" "$CONFIG_DIR/bridge.err.log" \
-  "$CONFIG_DIR/hud.log" "$CONFIG_DIR/hud.err.log" "$PLIST_PATH" "$HUD_PLIST_PATH"
-chmod 700 "$RUNNER_PATH" "$HUD_BINARY_PATH" "$RUNTIME_DIR"
+  "$CONFIG_DIR/hud.log" "$CONFIG_DIR/hud.err.log" "$CONFIG_DIR/menubar.log" "$CONFIG_DIR/menubar.err.log" "$PLIST_PATH" "$HUD_PLIST_PATH" "$MENUBAR_PLIST_PATH"
+chmod 700 "$RUNNER_PATH" "$HUD_BINARY_PATH" "$MENUBAR_APP_PATH" "$RUNTIME_DIR"
 
-launchctl bootstrap "$DOMAIN" "$PLIST_PATH"
-launchctl bootstrap "$DOMAIN" "$HUD_PLIST_PATH"
+if ! bootstrap_service "com.vibestick.bridge" "$PLIST_PATH" \
+   || ! bootstrap_service "com.vibestick.hud" "$HUD_PLIST_PATH" \
+   || ! bootstrap_service "com.vibestick.menubar" "$MENUBAR_PLIST_PATH"; then
+  dump_diagnostics
+  exit 1
+fi
 
 attempt=0
-while [ "$attempt" -lt 15 ]; do
+while [ "$attempt" -lt 30 ]; do
   if bridge_job_is_running && health_matches_expected && protected_state_matches_expected; then
     break
   fi
   attempt=$((attempt + 1))
   sleep 1
 done
-if [ "$attempt" -ge 15 ]; then
-  printf '%s\n' "The new Bridge LaunchAgent did not prove its identity and protected state within 15 seconds." >&2
+if [ "$attempt" -ge 30 ]; then
+  printf '%s\n' "The new Bridge LaunchAgent did not prove its identity and protected state within 30 seconds." >&2
+  diag "health/state verification timed out after 15s."
+  dump_diagnostics
   exit 1
 fi
 if ! launchctl print "$DOMAIN/com.vibestick.hud" >/dev/null 2>&1; then
   printf '%s\n' "The HUD LaunchAgent did not remain loaded." >&2
+  diag "HUD LaunchAgent missing after bootstrap."
+  dump_diagnostics
+  exit 1
+fi
+if ! launchctl print "$DOMAIN/com.vibestick.menubar" >/dev/null 2>&1; then
+  printf '%s\n' "The MenuBar LaunchAgent did not remain loaded." >&2
+  diag "MenuBar LaunchAgent missing after bootstrap."
+  dump_diagnostics
   exit 1
 fi
 
@@ -503,3 +677,5 @@ printf '%s\n' "VibeStick Bridge LaunchAgent installed and healthy:"
 printf '%s\n' "$PLIST_PATH"
 printf '%s\n' "VibeStick Bridge HUD LaunchAgent installed:"
 printf '%s\n' "$HUD_PLIST_PATH"
+printf '%s\n' "VibeStick MenuBar LaunchAgent installed:"
+printf '%s\n' "$MENUBAR_PLIST_PATH"

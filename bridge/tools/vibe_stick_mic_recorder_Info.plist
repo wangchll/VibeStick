@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.vibestick.micrecorder</string>
+    <key>CFBundleName</key>
+    <string>VibeStick Mic Recorder</string>
+    <key>CFBundleExecutable</key>
+    <string>vibe_stick_mic_recorder</string>
+    <key>CFBundleDisplayName</key>
+    <string>VibeStick 麦克风录制</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>VibeStick 需要短暂使用麦克风来录制你的语音，录制完成后在本机识别并立即删除，不会上传。</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>VibeStick 会读取你录制的音频以在本机离线识别语音内容。</string>
+</dict>
+</plist>

@@ -21,6 +21,7 @@ public final class RepositoryConfigurationStore: ConfigurationStoring, @unchecke
         static let asrAPIKey = "VIBE_STICK_ASR_API_KEY"
         static let asrModel = "VIBE_STICK_ASR_MODEL"
         static let asrLanguage = "VIBE_STICK_ASR_LANGUAGE"
+        static let asrTranscribeCmd = "VIBE_STICK_TRANSCRIBE_CMD"
         static let python = "VIBE_STICK_PYTHON"
     }
 
@@ -101,7 +102,7 @@ public final class RepositoryConfigurationStore: ConfigurationStoring, @unchecke
             displayName: "Wi‑Fi 密码"
         )
         let apiKey: String
-        if configuration.asrProvider == .disabled {
+        if configuration.asrProvider == .disabled || configuration.asrProvider == .appleOnDevice {
             apiKey = ""
         } else {
             apiKey = try resolvedSecret(
@@ -121,14 +122,16 @@ public final class RepositoryConfigurationStore: ConfigurationStoring, @unchecke
         switch configuration.asrProvider {
         case .siliconFlow, .custom: providerValue = "openai-compatible"
         case .disabled: providerValue = ""
+        case .appleOnDevice: providerValue = "apple-on-device"
         }
 
         let envValues = [
             Managed.asrProvider: providerValue,
-            Managed.asrBaseURL: configuration.asrProvider == .disabled ? "" : configuration.asrBaseURL,
+            Managed.asrBaseURL: configuration.asrProvider == .disabled || configuration.asrProvider == .appleOnDevice ? "" : configuration.asrBaseURL,
             Managed.asrAPIKey: apiKey,
-            Managed.asrModel: configuration.asrProvider == .disabled ? "" : configuration.asrModel,
+            Managed.asrModel: configuration.asrProvider == .disabled || configuration.asrProvider == .appleOnDevice ? "" : configuration.asrModel,
             Managed.asrLanguage: configuration.asrProvider == .disabled ? "" : configuration.asrLanguage,
+            Managed.asrTranscribeCmd: "",
             Managed.bridgeToken: token,
             Managed.python: resolvedPythonPath(currentEnv: currentEnv),
             "VIBE_STICK_PROJECT_ROOT": projectRoot.path,
@@ -183,7 +186,7 @@ public final class RepositoryConfigurationStore: ConfigurationStoring, @unchecke
     }
 
     public func resolvedASRAPIKey(for configuration: SetupConfiguration) throws -> String {
-        guard configuration.asrProvider != .disabled else { return "" }
+        guard configuration.asrProvider != .disabled && configuration.asrProvider != .appleOnDevice else { return "" }
         lock.lock()
         defer { lock.unlock() }
         let env = try readDotenv()
@@ -198,6 +201,7 @@ public final class RepositoryConfigurationStore: ConfigurationStoring, @unchecke
     private func providerFrom(env: [String: String]) -> ASRProvider {
         let raw = (env[Managed.asrProvider] ?? "").lowercased()
         if raw.isEmpty { return .disabled }
+        if raw == "apple-on-device" { return .appleOnDevice }
         let base = (env[Managed.asrBaseURL] ?? "").lowercased()
         if base.contains("siliconflow.cn") { return .siliconFlow }
         return .custom

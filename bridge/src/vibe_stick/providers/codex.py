@@ -41,6 +41,9 @@ def observation_from_local_codex(observation: LocalCodexObservation) -> Provider
         alert_type=alert_type,
         alert_message=alert_message,
         alert_event_id=alert_event_id,
+        quota_remaining=quota.quota_remaining if quota is not None else None,
+        quota_window_minutes=quota.quota_window_minutes if quota is not None else None,
+        quota_resets_at=quota.quota_resets_at if quota is not None else None,
         latest_event_timestamp=observation.latest_event_timestamp,
         active_conversations=observation.active_conversations,
         alert_events=tuple(

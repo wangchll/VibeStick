@@ -12,7 +12,7 @@ public struct ASRConnectionTester: Sendable {
         configuration: SetupConfiguration,
         apiKey: String
     ) async throws {
-        guard configuration.asrProvider != .disabled else { return }
+        guard configuration.asrProvider != .disabled && configuration.asrProvider != .appleOnDevice else { return }
         guard !apiKey.isEmpty else { throw SetupCoreError.missingSecret("API Key") }
         guard ConfigurationValidator.isValidASRURL(configuration.asrBaseURL),
               let baseURL = URL(string: configuration.asrBaseURL),

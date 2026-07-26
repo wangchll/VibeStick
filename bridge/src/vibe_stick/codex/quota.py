@@ -14,6 +14,9 @@ class QuotaSnapshot:
     quota_7d_remaining: int | None = None
     quota_updated_at: str = ""
     quota_stale: bool = False
+    quota_remaining: int | None = None
+    quota_window_minutes: int | None = None
+    quota_resets_at: int | None = None
 
     def to_jsonable(self) -> dict[str, Any]:
         return asdict(self)
@@ -31,6 +34,9 @@ def load_quota(path: Path) -> QuotaSnapshot:
         quota_7d_remaining=_percent_or_none(data.get("quota_7d_remaining")),
         quota_updated_at=str(data.get("quota_updated_at") or ""),
         quota_stale=bool(data.get("quota_stale", False)),
+        quota_remaining=_percent_or_none(data.get("quota_remaining")),
+        quota_window_minutes=_positive_int_or_none(data.get("quota_window_minutes")),
+        quota_resets_at=_positive_int_or_none(data.get("quota_resets_at")),
     )
 
 
@@ -50,3 +56,13 @@ def _percent_or_none(value: object) -> int | None:
     except (OverflowError, TypeError, ValueError):
         return None
     return max(0, min(100, number))
+
+
+def _positive_int_or_none(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return number if number > 0 else None

@@ -37,6 +37,32 @@ class MacPasteInjector:
             success_message="Sent the Codex stop shortcut",
         )
 
+    def approve_codex_task(self) -> PasteResult:
+        # Codex's permission prompt defaults to the highlighted "Allow once"
+        # option; sending Return confirms it. We focus the Codex app first so
+        # the keystroke lands in its window rather than whatever is focused.
+        return self._run_osascript(
+            [
+                'tell application id "com.openai.codex" to activate',
+                "delay 0.12",
+                'tell application "System Events" to key code 36',
+            ],
+            success_message="Sent the Codex approval (Return)",
+        )
+
+    def cancel_codex_task(self) -> PasteResult:
+        # Codex's permission prompt can be dismissed with Escape, which denies
+        # the pending permission request. We focus the Codex app first so the
+        # keystroke lands in its window rather than whatever is focused.
+        return self._run_osascript(
+            [
+                'tell application id "com.openai.codex" to activate',
+                "delay 0.12",
+                'tell application "System Events" to key code 53',
+            ],
+            success_message="Sent the Codex cancel (Escape)",
+        )
+
     def paste(self, text: str, press_enter: bool = False) -> PasteResult:
         text = text.strip()
         if not text:

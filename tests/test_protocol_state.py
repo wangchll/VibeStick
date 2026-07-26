@@ -27,6 +27,9 @@ class ProtocolStateTests(unittest.TestCase):
                     "quota_7d_remaining": 96,
                     "quota_updated_at": "09:38",
                     "active_conversations": 2,
+                    "quota_remaining": 96,
+                    "quota_window_minutes": 10080,
+                    "quota_resets_at": 4102444800,
                 }
             }
         )
@@ -39,6 +42,9 @@ class ProtocolStateTests(unittest.TestCase):
         self.assertEqual(payload["provider"]["active_conversations"], 2)
         self.assertEqual(payload["codex"]["status"], "RUNNING")
         self.assertEqual(payload["codex"]["active_conversations"], 2)
+        self.assertEqual(payload["codex"]["quota_remaining"], 96)
+        self.assertEqual(payload["codex"]["quota_window_minutes"], 10080)
+        self.assertGreater(payload["codex"]["quota_reset_after_seconds"], 0)
 
     def test_unsupported_saved_provider_is_normalized_to_codex(self) -> None:
         state = state_from_dict(

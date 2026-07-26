@@ -4,7 +4,7 @@
 
 ![VibeStick 语音输入流程，显示 StickS3 录音状态和 Mac HUD](assets/brand/voice-input-preview.png)
 
-VibeStick 把 M5Stack StickS3 变成一个 Codex 桌面终端：显示任务状态、运行中对话数量、5H/7D 用量和提醒，并支持语音转写到 Mac。
+VibeStick 把 M5Stack StickS3 变成一个 Codex 桌面终端：显示任务状态、运行中对话数量、当前用量窗口与重置倒计时，并支持语音转写到 Mac。
 
 本项目面向 M5Stack StickS3，不是 M5Stack 官方项目。
 

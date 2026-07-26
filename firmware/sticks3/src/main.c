@@ -43,6 +43,11 @@
 #define LCD_BACKLIGHT_PWM_HZ 5000
 #define LCD_BACKLIGHT_PWM_MAX 255
 #define LCD_BACKLIGHT_DEFAULT 150
+
+// Auto power-save: the screen turns off after this many ms with no button
+// activity. Any button press wakes it again. Lower = more saving.
+#define SCREEN_IDLE_OFF_MS_DEFAULT (60 * 1000)
+static int64_t s_screen_idle_off_ms = SCREEN_IDLE_OFF_MS_DEFAULT;
 #define LVGL_DRAW_BUF_LINES 24
 #define LVGL_TICK_PERIOD_MS 10
 #define LVGL_TASK_STACK_SIZE 8192
@@ -70,7 +75,8 @@ typedef enum {
     VIBE_STICK_EVENT_DOUBLE_CLICK,
     VIBE_STICK_EVENT_LONG_START,
     VIBE_STICK_EVENT_LONG_STOP,
-    VIBE_STICK_EVENT_TOGGLE_VIEW,
+    VIBE_STICK_EVENT_ENTER_PET,
+    VIBE_STICK_EVENT_EXIT_PET,
 } agent_event_type_t;
 
 typedef struct {
@@ -98,6 +104,11 @@ typedef struct {
     int quota_7d;
     bool quota_5h_valid;
     bool quota_7d_valid;
+    int quota_remaining;
+    int quota_window_minutes;
+    int quota_reset_after_seconds;
+    bool quota_remaining_valid;
+    bool quota_reset_valid;
     char quota_updated_at[8];
     bool quota_stale;
 } codex_display_state_t;
@@ -136,6 +147,9 @@ static size_t s_pet_frame_index;
 static uint16_t *s_pet_framebuffer;
 
 static lv_display_t *s_display;
+static esp_lcd_panel_handle_t s_display_panel;
+static volatile bool s_screen_asleep = false;
+static int64_t s_last_activity_ms = 0;
 static lv_obj_t *s_dashboard_view;
 static lv_obj_t *s_pet_view;
 static lv_obj_t *s_pet_canvas;
@@ -189,6 +203,11 @@ static codex_display_state_t s_codex_state = {
     .quota_7d = 0,
     .quota_5h_valid = false,
     .quota_7d_valid = false,
+    .quota_remaining = 0,
+    .quota_window_minutes = 0,
+    .quota_reset_after_seconds = 0,
+    .quota_remaining_valid = false,
+    .quota_reset_valid = false,
     .quota_updated_at = "",
     .quota_stale = false,
 };
@@ -224,14 +243,14 @@ static void queue_event(agent_event_type_t type)
 static void lvgl_lock(void)
 {
     if (s_lvgl_lock) {
-        xSemaphoreTake(s_lvgl_lock, portMAX_DELAY);
+        xSemaphoreTakeRecursive(s_lvgl_lock, portMAX_DELAY);
     }
 }
 
 static void lvgl_unlock(void)
 {
     if (s_lvgl_lock) {
-        xSemaphoreGive(s_lvgl_lock);
+        xSemaphoreGiveRecursive(s_lvgl_lock);
     }
 }
 
@@ -245,6 +264,13 @@ static void lvgl_task(void *arg)
 {
     (void)arg;
     while (true) {
+        if (s_screen_asleep) {
+            // Screen is off: skip all LVGL rendering so the panel SPI bus
+            // stays idle and the device saves power. The next button press
+            // calls screen_wake(), which repaints via render_state().
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
         lvgl_lock();
         uint32_t wait_ms = lv_timer_handler();
         lvgl_unlock();
@@ -281,6 +307,47 @@ static void set_backlight(uint8_t brightness)
 {
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, brightness);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+}
+
+// --- Power-saving: auto screen-off after idle ---
+// Turn the display back on and repaint the current UI. Safe to call even when
+// already awake (it early-returns).
+static void screen_wake(void)
+{
+    if (!s_screen_asleep) {
+        return;
+    }
+    // Turn the panel back on. Keep s_screen_asleep true through the repaint so
+    // lvgl_task stays in its skip branch and cannot flush concurrently on the
+    // SPI bus. render_state() takes the LVGL lock itself -- do NOT double-lock
+    // here (the old code did, and a non-recursive mutex self-deadlocks app_task
+    // on every wake, freezing the whole device and preventing re-sleep).
+    esp_lcd_panel_disp_on_off(s_display_panel, true);
+    set_backlight(LCD_BACKLIGHT_DEFAULT);
+    render_state();
+    s_screen_asleep = false;
+    ESP_LOGI(TAG, "screen wake (backlight on)");
+}
+
+// Turn the display off to save power. Never sleeps while the user is actively
+// recording or an overlay is showing.
+static void screen_sleep(void)
+{
+    if (s_screen_asleep) {
+        return;
+    }
+    if (s_recording_overlay_visible || vibe_audio_is_recording()) {
+        return;
+    }
+    // Guard the display-off command with the LVGL lock so it never runs
+    // concurrently with an in-flight flush in lvgl_task (both use the same SPI
+    // bus); an unsynchronized command can wedge the bus and freeze the device.
+    lvgl_lock();
+    set_backlight(0);
+    esp_lcd_panel_disp_on_off(s_display_panel, false);
+    s_screen_asleep = true;
+    lvgl_unlock();
+    ESP_LOGI(TAG, "screen sleep (backlight off)");
 }
 
 static void init_backlight(void)
@@ -350,6 +417,7 @@ static esp_err_t init_display(void)
     lv_init();
     s_display = lv_display_create(LCD_H_RES, LCD_V_RES);
     lv_display_set_user_data(s_display, panel);
+    s_display_panel = panel;
     lv_display_set_flush_cb(s_display, lvgl_flush_cb);
 
     size_t buffer_size = LCD_H_RES * LVGL_DRAW_BUF_LINES * sizeof(lv_color_t);
@@ -798,6 +866,59 @@ static void set_quota_title(lv_obj_t *label, const char *prefix, bool stale)
     }
 }
 
+static const char *quota_window_title(int minutes)
+{
+    if (minutes == 10080) {
+        return "WEEK";
+    }
+    if (minutes == 300) {
+        return "5H";
+    }
+    if (minutes > 0 && minutes % 1440 == 0) {
+        return "DAYS";
+    }
+    return "USAGE";
+}
+
+static void set_reset_label(lv_obj_t *label, int seconds, bool valid)
+{
+    if (!valid) {
+        lv_label_set_text(label, "--");
+        return;
+    }
+    char text[12];
+    if (seconds >= 86400) {
+        int days = (seconds + 86399) / 86400;
+        snprintf(text, sizeof(text), "%dD", days);
+    } else if (seconds >= 3600) {
+        int hours = (seconds + 3599) / 3600;
+        snprintf(text, sizeof(text), "%dH", hours);
+    } else {
+        int minutes = (seconds + 59) / 60;
+        snprintf(text, sizeof(text), "%dM", minutes);
+    }
+    lv_label_set_text(label, text);
+}
+
+static void set_reset_bar(lv_obj_t *bar, int seconds, int window_minutes, bool valid,
+                          lv_color_t accent_color)
+{
+    int percent = 0;
+    if (valid && window_minutes > 0) {
+        int64_t window_seconds = (int64_t)window_minutes * 60;
+        int64_t remaining_seconds = seconds;
+        if (remaining_seconds < 0) {
+            remaining_seconds = 0;
+        } else if (remaining_seconds > window_seconds) {
+            remaining_seconds = window_seconds;
+        }
+        percent = (int)((remaining_seconds * 100 + window_seconds / 2) / window_seconds);
+    }
+    lv_obj_set_style_bg_color(bar, valid ? accent_color : lv_color_hex(0x4b4f57),
+                              LV_PART_INDICATOR);
+    lv_bar_set_value(bar, percent, LV_ANIM_OFF);
+}
+
 static void set_status_color(const char *status)
 {
     lv_color_t color = lv_color_hex(0x9aa0aa);
@@ -871,12 +992,27 @@ static void render_state(void)
         lv_obj_align(s_status_label, LV_ALIGN_TOP_LEFT, 75, 73);
     }
     set_status_color(display_state->status);
-    set_quota_title(s_quota_5h_title_label, "5H", quota_stale);
-    set_quota_title(s_quota_7d_title_label, "7D", quota_stale);
-    set_quota_label(s_quota_5h_bar, s_quota_5h_label, display_state->quota_5h,
-                    q5_valid, s_codex_accent_color);
-    set_quota_label(s_quota_7d_bar, s_quota_7d_label, display_state->quota_7d,
-                    q7_valid, s_codex_accent_color);
+    if (display_state->quota_remaining_valid) {
+        set_quota_title(s_quota_5h_title_label,
+                        quota_window_title(display_state->quota_window_minutes), quota_stale);
+        set_quota_label(s_quota_5h_bar, s_quota_5h_label, display_state->quota_remaining,
+                        true, s_codex_accent_color);
+        set_quota_title(s_quota_7d_title_label, "RESET", quota_stale);
+        set_reset_label(s_quota_7d_label, display_state->quota_reset_after_seconds,
+                        display_state->quota_reset_valid);
+        set_reset_bar(s_quota_7d_bar, display_state->quota_reset_after_seconds,
+                      display_state->quota_window_minutes, display_state->quota_reset_valid,
+                      s_codex_accent_color);
+        lv_obj_clear_flag(s_quota_7d_bar, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        set_quota_title(s_quota_5h_title_label, "5H", quota_stale);
+        set_quota_title(s_quota_7d_title_label, "7D", quota_stale);
+        set_quota_label(s_quota_5h_bar, s_quota_5h_label, display_state->quota_5h,
+                        q5_valid, s_codex_accent_color);
+        set_quota_label(s_quota_7d_bar, s_quota_7d_label, display_state->quota_7d,
+                        q7_valid, s_codex_accent_color);
+        lv_obj_clear_flag(s_quota_7d_bar, LV_OBJ_FLAG_HIDDEN);
+    }
     lv_label_set_text(s_quota_status_label, "");
     lv_obj_add_flag(s_quota_status_label, LV_OBJ_FLAG_HIDDEN);
     lvgl_unlock();
@@ -1268,6 +1404,9 @@ static void parse_codex_fields(cJSON *source, codex_display_state_t *target)
     cJSON *active_conversations = cJSON_GetObjectItemCaseSensitive(source, "active_conversations");
     cJSON *quota_5h = cJSON_GetObjectItemCaseSensitive(source, "quota_5h_remaining");
     cJSON *quota_7d = cJSON_GetObjectItemCaseSensitive(source, "quota_7d_remaining");
+    cJSON *quota_remaining = cJSON_GetObjectItemCaseSensitive(source, "quota_remaining");
+    cJSON *quota_window_minutes = cJSON_GetObjectItemCaseSensitive(source, "quota_window_minutes");
+    cJSON *quota_reset_after_seconds = cJSON_GetObjectItemCaseSensitive(source, "quota_reset_after_seconds");
     cJSON *stale = cJSON_GetObjectItemCaseSensitive(source, "quota_stale");
     int quota_value = 0;
     target->active_conversations = cJSON_IsNumber(active_conversations)
@@ -1286,6 +1425,18 @@ static void parse_codex_fields(cJSON *source, codex_display_state_t *target)
     if (target->quota_7d_valid) {
         target->quota_7d = quota_value;
     }
+    target->quota_remaining_valid = json_percent_value(quota_remaining, &quota_value);
+    if (target->quota_remaining_valid) {
+        target->quota_remaining = quota_value;
+    }
+    target->quota_window_minutes = cJSON_IsNumber(quota_window_minutes)
+                                       ? quota_window_minutes->valueint
+                                       : 0;
+    target->quota_reset_valid = cJSON_IsNumber(quota_reset_after_seconds) &&
+                                quota_reset_after_seconds->valuedouble >= 0;
+    target->quota_reset_after_seconds = target->quota_reset_valid
+                                            ? quota_reset_after_seconds->valueint
+                                            : 0;
     target->quota_stale = cJSON_IsBool(stale) ? cJSON_IsTrue(stale) : false;
 }
 
@@ -1351,6 +1502,14 @@ static bool parse_state_json(const char *json)
         copy_json_string(alert, "event_id", s_state.alert_event_id, sizeof(s_state.alert_event_id));
         copy_json_string(alert, "type", s_state.alert_type, sizeof(s_state.alert_type));
         copy_json_string(alert, "message", s_state.alert_message, sizeof(s_state.alert_message));
+    }
+    cJSON *idle = cJSON_GetObjectItemCaseSensitive(state_root, "screen_idle_off_ms");
+    if (cJSON_IsNumber(idle)) {
+        int secs = idle->valueint;
+        if (secs >= 5 && secs <= 3600) {
+            s_screen_idle_off_ms = (int64_t)secs * 1000;
+            ESP_LOGI(TAG, "screen idle off set to %d s", secs);
+        }
     }
     cJSON_Delete(root);
     return true;
@@ -1809,7 +1968,14 @@ static void button_side_click_cb(void *button_handle, void *usr_data)
 {
     (void)button_handle;
     (void)usr_data;
-    queue_event(VIBE_STICK_EVENT_TOGGLE_VIEW);
+    queue_event(VIBE_STICK_EVENT_ENTER_PET);
+}
+
+static void button_side_double_cb(void *button_handle, void *usr_data)
+{
+    (void)button_handle;
+    (void)usr_data;
+    queue_event(VIBE_STICK_EVENT_EXIT_PET);
 }
 
 static void button_long_start_cb(void *button_handle, void *usr_data)
@@ -1873,6 +2039,9 @@ static esp_err_t init_buttons(void)
     ESP_RETURN_ON_ERROR(iot_button_register_cb(side_button, BUTTON_SINGLE_CLICK, NULL,
                                                 button_side_click_cb, NULL),
                         TAG, "side button single");
+    ESP_RETURN_ON_ERROR(iot_button_register_cb(side_button, BUTTON_DOUBLE_CLICK, NULL,
+                                                button_side_double_cb, NULL),
+                        TAG, "side button double");
     return ESP_OK;
 }
 
@@ -1921,9 +2090,21 @@ static void app_task(void *arg)
             last_poll = now_ms;
             poll_state();
         }
+        // Auto power-save: sleep the screen after a period of no button activity.
+        if (s_last_activity_ms == 0) {
+            s_last_activity_ms = now_ms;
+        }
+        if (!s_screen_asleep && !s_recording_overlay_visible && !vibe_audio_is_recording() &&
+            (now_ms - s_last_activity_ms >= s_screen_idle_off_ms)) {
+            screen_sleep();
+        }
         if (xQueueReceive(s_event_queue, &event, pdMS_TO_TICKS(100)) != pdTRUE) {
             continue;
         }
+        // Any button press wakes the screen and resets the idle timer. The
+        // press still performs its normal function in the switch below.
+        s_last_activity_ms = now_ms;
+        screen_wake();
         switch (event.type) {
         case VIBE_STICK_EVENT_POLL_STATE:
             poll_state();
@@ -1951,8 +2132,25 @@ static void app_task(void *arg)
                 handle_recording_stop();
             }
             break;
-        case VIBE_STICK_EVENT_TOGGLE_VIEW:
-            set_pet_view_visible(!s_pet_view_visible);
+        case VIBE_STICK_EVENT_ENTER_PET:
+            // Right-side button (single click): confirm a pending Codex
+            // approval on the host (bridges to the "button_approval_confirm"
+            // handler, which calls approve_codex_task()) AND bring the pet
+            // (Roxy) view to the front -- from any state. When no approval is
+            // pending the bridge simply ignores the event, so this is safe to
+            // send unconditionally.
+            set_pet_view_visible(true);
+            post_simple_event("button_approval_confirm", NULL);
+            break;
+        case VIBE_STICK_EVENT_EXIT_PET:
+            // Double-click the right-side button: cancel a pending Codex
+            // approval on the host (bridges to the "button_approval_cancel"
+            // handler, which dismisses/denies the permission prompt) AND
+            // leave the pet view to return to the dashboard. Safe to send
+            // unconditionally; the bridge ignores it when no approval is
+            // pending.
+            set_pet_view_visible(false);
+            post_simple_event("button_approval_cancel", NULL);
             break;
         }
     }
@@ -1973,7 +2171,7 @@ void app_main(void)
     ESP_ERROR_CHECK_WITHOUT_ABORT(vibe_board_init_power());
     s_event_queue = xQueueCreate(10, sizeof(agent_event_t));
     ESP_ERROR_CHECK(s_event_queue ? ESP_OK : ESP_ERR_NO_MEM);
-    s_lvgl_lock = xSemaphoreCreateMutex();
+    s_lvgl_lock = xSemaphoreCreateRecursiveMutex();
     ESP_ERROR_CHECK(s_lvgl_lock ? ESP_OK : ESP_ERR_NO_MEM);
     ESP_ERROR_CHECK(init_display());
     lvgl_lock();

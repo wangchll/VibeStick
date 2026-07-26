@@ -101,6 +101,19 @@ case "$idf_version" in
     ;;
 esac
 
+# 在精简 PATH（如安装器子进程 minimalEnvironment）下，ESP-IDF 的 export.sh
+# 可能不会自动激活 Python venv。预先把 venv 的 bin 加入 PATH，确保后续
+# 能找到 venv 的 python / idf.py / esptool。
+for _vs_venv in "$HOME/.espressif/python_env"/idf5.5*/bin "$HOME/.espressif/python_env"/*/bin; do
+  if [ -x "$_vs_venv/python" ]; then
+    case ":$PATH:" in
+      *":$_vs_venv:"*) ;;
+      *) PATH="$_vs_venv:$PATH" ;;
+    esac
+    break
+  fi
+done
+
 if ! . "$idf_export" >/dev/null 2>&1; then
   printf '%s\n' "ESP-IDF 5.5.x could not initialize its Python environment." >&2
   exit 20
@@ -123,6 +136,7 @@ import errno
 import os
 import re
 import sys
+import traceback
 
 
 READY = 0
@@ -226,7 +240,7 @@ def probe(device, expected_serial):
                 detecting=True,
                 warnings=False,
             )
-        except FatalError:
+        except (FatalError, SystemExit):
             result = NOT_IN_ROM
         else:
             if getattr(loader, "IS_STUB", False) or getattr(loader, "sync_stub_detected", False):
@@ -274,5 +288,19 @@ def main():
     return probe(device, expected_serial)
 
 
-raise SystemExit(main())
+try:
+    raise SystemExit(main())
+except BaseException as error:  # defensive: only expected codes may exit; never leak a 1
+    EXPECTED_CODES = (0, 10, 11, 12, 13, 14, 15, 20)
+    if isinstance(error, SystemExit) and isinstance(getattr(error, "code", None), int):
+        if error.code in EXPECTED_CODES:
+            raise  # 0/10/11/12/13/14/15/20 propagate as designed
+    try:
+        with open("/tmp/vibestick-probe.log", "a") as _fh:
+            _fh.write(f"probe abnormal exit: {error!r}\n")
+            traceback.print_exc(file=_fh)
+    except OSError:
+        pass
+    print(f"Unexpected ESP32-S3 ROM probe failure: {error}", file=sys.stderr)
+    raise SystemExit(20)
 PY

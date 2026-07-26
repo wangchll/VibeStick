@@ -129,7 +129,7 @@ struct NetworkSetupStepView: View {
                         Text("暂不使用语音输入").tag(ASRProvider.disabled)
                     }
 
-                    if store.configuration.asrProvider != .disabled {
+                    if store.configuration.asrProvider != .disabled && store.configuration.asrProvider != .appleOnDevice {
                         SecureField(
                             "API Key",
                             text: $store.configuration.asrAPIKey,
@@ -156,7 +156,7 @@ struct NetworkSetupStepView: View {
                 HStack(spacing: 10) {
                     voiceAPIStatus
                     Spacer()
-                    if store.configuration.asrProvider != .disabled {
+                    if store.configuration.asrProvider != .disabled && store.configuration.asrProvider != .appleOnDevice {
                         Button("检测 API") {
                             showValidationError = true
                             store.testASRConnection()

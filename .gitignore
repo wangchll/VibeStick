@@ -20,6 +20,7 @@ build/
 .build/
 .vscode/
 .idea/
+.workbuddy/
 firmware/sticks3/build/
 firmware/sticks3/.pio/
 firmware/sticks3/managed_components/

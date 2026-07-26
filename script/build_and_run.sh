@@ -5,7 +5,7 @@ MODE="${1:-run}"
 APP_NAME="VibeStickSetup"
 BUNDLE_ID="com.vibestick.setup"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${VIBE_STICK_APP_VERSION:-0.1.7}"
+APP_VERSION="${VIBE_STICK_APP_VERSION:-0.2.5}"
 APP_BUILD_VERSION="${VIBE_STICK_APP_BUILD_VERSION:-1}"
 
 if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -56,7 +56,7 @@ else
 fi
 
 rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_MACOS" "$PROJECT_TEMPLATE"
+mkdir -p "$APP_MACOS" "$APP_RESOURCES" "$PROJECT_TEMPLATE"
 if [[ "$MODE" == "--package" || "$MODE" == "package" ]]; then
   /usr/bin/lipo -create \
     "$ARM64_BUILD_DIR/$APP_NAME" \
@@ -66,6 +66,12 @@ else
   cp "$BUILD_BINARY" "$APP_BINARY"
 fi
 chmod +x "$APP_BINARY"
+
+# Bundle the app icon. Source SVG: assets/brand/vibestick-icon.svg; the .icns
+# is pre-rendered and committed so the build needs no rasterizer.
+if [[ -f "$PACKAGE_DIR/AppIcon.icns" ]]; then
+  cp "$PACKAGE_DIR/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
+fi
 
 # Bundle a clean, writable-on-first-run project template. Never copy the
 # checkout's .env, firmware secrets, build products, or downloaded components.
@@ -94,7 +100,9 @@ cp \
 /usr/bin/rsync -a --include '*.sh' --exclude '*' \
   "$ROOT_DIR/scripts/" "$PROJECT_TEMPLATE/scripts/"
 /usr/bin/rsync -a \
-  "$ROOT_DIR/app/macos/VibeStickHUD" "$PROJECT_TEMPLATE/app/macos/"
+  "$ROOT_DIR/app/macos/VibeStickHUD" \
+  "$ROOT_DIR/app/macos/VibeStickMenuBar" \
+  "$PROJECT_TEMPLATE/app/macos/"
 
 PROJECT_TEMPLATE_VERSION="$(
   cd "$PROJECT_TEMPLATE"
@@ -119,6 +127,7 @@ for required in \
   bridge/src/vibe_stick/__init__.py \
   bridge/tools/vibe_stick_mic_recorder.swift \
   app/macos/VibeStickHUD/main.swift \
+  app/macos/VibeStickMenuBar/main.swift \
   firmware/sticks3/CMakeLists.txt \
   firmware/sticks3/include/vibe_stick_secrets.example.h; do
   if [[ ! -f "$PROJECT_TEMPLATE/$required" ]]; then
@@ -164,6 +173,8 @@ cat >"$INFO_PLIST" <<PLIST
   </dict>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
 </dict>
 </plist>
 PLIST
@@ -196,6 +207,10 @@ open_app() {
 }
 
 case "$MODE" in
+  build)
+    # Build, bundle and codesign only — do not launch the GUI.
+    echo "Built $APP_BUNDLE"
+    ;;
   run)
     open_app
     ;;

@@ -4,6 +4,7 @@ public enum ASRProvider: String, CaseIterable, Codable, Identifiable, Sendable {
     case siliconFlow = "siliconflow"
     case custom
     case disabled
+    case appleOnDevice = "apple-on-device"
 
     public var id: String { rawValue }
 
@@ -12,6 +13,7 @@ public enum ASRProvider: String, CaseIterable, Codable, Identifiable, Sendable {
         case .siliconFlow: "SiliconFlow"
         case .custom: "OpenAI 兼容服务"
         case .disabled: "暂不配置"
+        case .appleOnDevice: "本机语音识别"
         }
     }
 
@@ -20,20 +22,21 @@ public enum ASRProvider: String, CaseIterable, Codable, Identifiable, Sendable {
         case .siliconFlow: "中国大陆网络推荐"
         case .custom: "填写自定义 API 地址与模型"
         case .disabled: "语音录制可用，但不会转写"
+        case .appleOnDevice: "本地 Whisper 模型，离线、不联网"
         }
     }
 
     public var defaultBaseURL: String {
         switch self {
         case .siliconFlow: "https://api.siliconflow.cn/v1"
-        case .custom, .disabled: ""
+        case .custom, .disabled, .appleOnDevice: ""
         }
     }
 
     public var defaultModel: String {
         switch self {
         case .siliconFlow: "FunAudioLLM/SenseVoiceSmall"
-        case .custom, .disabled: ""
+        case .custom, .disabled, .appleOnDevice: ""
         }
     }
 }
@@ -151,7 +154,7 @@ public enum ConfigurationValidator {
             result.append(.init(field: .speakerVolume, message: "StickS3 扬声器音量必须在 0–100 之间"))
         }
 
-        if configuration.asrProvider != .disabled {
+        if configuration.asrProvider != .disabled && configuration.asrProvider != .appleOnDevice {
             if configuration.asrAPIKey.isEmpty && !configuration.hasStoredAPIKey {
                 result.append(.init(field: .asrAPIKey, message: "请输入语音转写 API Key"))
             } else if !configuration.asrAPIKey.isEmpty,

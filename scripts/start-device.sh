@@ -73,6 +73,18 @@ case "$idf_version" in
     ;;
 esac
 
+# 在精简 PATH（如安装器子进程 minimalEnvironment）下，ESP-IDF 的 export.sh
+# 可能不会自动激活 Python venv。预先把 venv 的 bin 加入 PATH。
+for _vs_venv in "$HOME/.espressif/python_env"/idf5.5*/bin "$HOME/.espressif/python_env"/*/bin; do
+  if [ -x "$_vs_venv/python" ]; then
+    case ":$PATH:" in
+      *":$_vs_venv:"*) ;;
+      *) PATH="$_vs_venv:$PATH" ;;
+    esac
+    break
+  fi
+done
+
 . "$idf_export" >/dev/null
 python_bin="$(command -v python 2>/dev/null || true)"
 esptool_path="$idf_root/components/esptool_py/esptool/esptool.py"

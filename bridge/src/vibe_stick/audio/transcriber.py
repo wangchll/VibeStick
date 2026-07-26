@@ -65,44 +65,6 @@ class TranscriptionAdapter:
                 source="env",
             )
 
-        command_result = run_json_command_hook(
-            "VIBE_STICK_TRANSCRIBE_CMD",
-            session_payload,
-            timeout=_command_timeout_seconds(),
-        )
-        if command_result is None:
-            return self._transcribe_with_configured_asr(session_payload)
-        if command_result.error:
-            return TranscriptionResult(
-                success=False,
-                message=f"Transcription command failed: {command_result.error}",
-                source="command",
-            )
-
-        transcript = command_result.stdout.strip()
-        if command_result.returncode != 0:
-            message = (
-                command_result.stderr
-                or command_result.stdout
-                or "Transcription command failed"
-            ).strip()
-            return TranscriptionResult(success=False, message=message, source="command")
-        if not transcript:
-            return TranscriptionResult(success=False, message="Transcription command returned no text", source="command")
-        if len(transcript) > MAX_TRANSCRIPT_CHARACTERS:
-            return TranscriptionResult(
-                success=False,
-                message="Transcription command returned too much text",
-                source="command",
-            )
-        return TranscriptionResult(
-            text=transcript,
-            success=True,
-            message="Transcript supplied by local command",
-            source="command",
-        )
-
-    def _transcribe_with_configured_asr(self, session_payload: dict[str, Any]) -> TranscriptionResult:
         audio_file_raw = str(session_payload.get("audio_file") or "").strip()
         if not audio_file_raw:
             return TranscriptionResult(
@@ -119,7 +81,55 @@ class TranscriptionAdapter:
             )
 
         config = _load_asr_config()
-        if config.get("provider") not in {"groq", "openai-compatible"} or not config.get("api_key"):
+        provider = config.get("provider") or ""
+
+        # The configured provider is authoritative for the two supported modes.
+        # Selecting 本机 (whisper-local) always uses the built-in on-device
+        # Whisper model; selecting a remote provider always reaches the cloud.
+        if provider in ("whisper-local", "apple-on-device"):
+            from vibe_stick.audio.apple_asr import AppleOnDeviceTranscriber
+
+            return AppleOnDeviceTranscriber().transcribe(audio_file)
+
+        # Advanced escape hatch: an explicit local transcription command can
+        # override the remote provider. Leave VIBE_STICK_TRANSCRIBE_CMD empty
+        # (the default) to use the configured cloud provider.
+        command_result = run_json_command_hook(
+            "VIBE_STICK_TRANSCRIBE_CMD",
+            session_payload,
+            timeout=_command_timeout_seconds(),
+        )
+        if command_result is not None:
+            if command_result.error:
+                return TranscriptionResult(
+                    success=False,
+                    message=f"Transcription command failed: {command_result.error}",
+                    source="command",
+                )
+            transcript = command_result.stdout.strip()
+            if command_result.returncode != 0:
+                message = (
+                    command_result.stderr
+                    or command_result.stdout
+                    or "Transcription command failed"
+                ).strip()
+                return TranscriptionResult(success=False, message=message, source="command")
+            if not transcript:
+                return TranscriptionResult(success=False, message="Transcription command returned no text", source="command")
+            if len(transcript) > MAX_TRANSCRIPT_CHARACTERS:
+                return TranscriptionResult(
+                    success=False,
+                    message="Transcription command returned too much text",
+                    source="command",
+                )
+            return TranscriptionResult(
+                text=transcript,
+                success=True,
+                message="Transcript supplied by local command",
+                source="command",
+            )
+
+        if provider not in {"groq", "openai-compatible"} or not config.get("api_key"):
             return TranscriptionResult(
                 success=False,
                 message="No transcription adapter configured",
@@ -191,6 +201,16 @@ def _load_asr_config() -> dict[str, str]:
 
 def _config_from_generic_env() -> dict[str, str]:
     provider = _normalize_asr_provider(os.environ.get("VIBE_STICK_ASR_PROVIDER", ""))
+    if not provider:
+        return {}
+    if provider == "apple-on-device":
+        return _asr_config(
+            provider=provider,
+            base_url="",
+            api_key="",
+            model="",
+            language=os.environ.get("VIBE_STICK_ASR_LANGUAGE", "").strip(),
+        )
     api_key = os.environ.get("VIBE_STICK_ASR_API_KEY", "").strip()
     base_url = os.environ.get("VIBE_STICK_ASR_BASE_URL", "").strip()
     model = os.environ.get("VIBE_STICK_ASR_MODEL", "").strip()
@@ -218,6 +238,17 @@ def _config_from_generic_env() -> dict[str, str]:
 
 def _config_from_toml(data: dict[str, Any]) -> dict[str, str]:
     provider = _normalize_asr_provider(data.get("asr_provider") or data.get("provider") or "")
+    if not provider:
+        return {}
+    if provider == "apple-on-device":
+        language = str(data.get("language") or "").strip()
+        return _asr_config(
+            provider=provider,
+            base_url="",
+            api_key="",
+            model="",
+            language=language,
+        )
     api_key = str(data.get("api_key") or "").strip()
     base_url = str(data.get("base_url") or "").strip()
     model = str(data.get("model") or "").strip()
@@ -263,7 +294,7 @@ def _asr_config(
 
 def _normalize_asr_provider(raw: object) -> str:
     value = str(raw or "").strip().lower()
-    if value in {"groq", "openai-compatible"}:
+    if value in {"groq", "openai-compatible", "whisper-local", "apple-on-device"}:
         return value
     return ""
 
@@ -436,6 +467,8 @@ def _transcription_url(base_url: str) -> str:
 
 
 def _asr_label(provider: str) -> str:
+    if provider in ("whisper-local", "apple-on-device"):
+        return "本地 Whisper"
     return "Groq" if provider == "groq" else "OpenAI-compatible"
 
 

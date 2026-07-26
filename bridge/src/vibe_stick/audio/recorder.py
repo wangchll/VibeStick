@@ -817,8 +817,20 @@ class MacMicRecorder:
 
     def _ensure_helper_binary(self) -> Path | None:
         source = Path(__file__).resolve().parents[3] / "tools" / "vibe_stick_mic_recorder.swift"
+        plist = source.parent / "vibe_stick_mic_recorder_Info.plist"
         binary = MIC_RECORDER_PATH
+        # binary lives at <app>.app/Contents/MacOS/<name>; the bundle root is
+        # three levels up.
+        app_bundle = binary.parents[2]
         if not source.exists():
+            return None
+        if not plist.exists():
+            print(
+                "mic recorder helper build skipped: Info.plist missing "
+                f"({plist}); the standalone binary would crash under TCC "
+                "without NSMicrophoneUsageDescription.",
+                flush=True,
+            )
             return None
         try:
             source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
@@ -833,7 +845,7 @@ class MacMicRecorder:
             return binary
 
         ensure_private_dir(binary.parent)
-        temporary_binary = binary.with_name(f".{binary.name}.{os.getpid()}.tmp")
+        temporary_binary = app_bundle.parent / f".{binary.name}.{os.getpid()}.tmp"
         try:
             result = subprocess.run(
                 [
@@ -855,12 +867,39 @@ class MacMicRecorder:
         if result.returncode != 0:
             _remove_file(temporary_binary)
             return None
+
+        # Place the executable inside a real .app bundle and write the
+        # Info.plist there. macOS TCC only honors NSMicrophoneUsageDescription
+        # when it lives in a bundle's Contents/Info.plist; a bare Mach-O (even
+        # with an embedded __TEXT,__info_plist section) is killed with
+        # EXC_CRASH / SIGABRT the moment microphone access is requested.
         try:
+            ensure_private_dir(binary.parent)
             os.replace(temporary_binary, binary)
-        except OSError:
+            atomic_write_text(
+                app_bundle / "Contents" / "Info.plist",
+                plist.read_text(encoding="utf-8"),
+                skip_if_unchanged=True,
+            )
+        except OSError as exc:
             _remove_file(temporary_binary)
+            print(f"mic recorder helper bundle setup failed: {exc}", flush=True)
             return None
         ensure_private_file(binary, executable=True)
+        resign = subprocess.run(
+            ["codesign", "--force", "--sign", "-", str(app_bundle)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if resign.returncode != 0:
+            print(
+                "mic recorder helper signing failed: "
+                + (resign.stderr or resign.stdout or "codesign failed").strip(),
+                flush=True,
+            )
+            return None
         try:
             atomic_write_text(
                 MIC_RECORDER_STAMP_PATH,

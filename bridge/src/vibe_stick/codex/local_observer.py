@@ -295,6 +295,9 @@ def _quota_at_time(
         quota_7d_remaining=quota.quota_7d_remaining,
         quota_updated_at=quota.quota_updated_at,
         quota_stale=now - timestamp > QUOTA_STALE_AFTER,
+        quota_remaining=quota.quota_remaining,
+        quota_window_minutes=quota.quota_window_minutes,
+        quota_resets_at=quota.quota_resets_at,
     )
 
 
@@ -404,25 +407,42 @@ def _quota_from_payload(
 
     five_hour = None
     seven_day = None
+    generic_remaining = None
+    generic_window_minutes = None
+    generic_resets_at = None
+    valid_windows = 0
     for window in ("primary", "secondary"):
         data = rate_limits.get(window)
         if not isinstance(data, dict):
             continue
         remaining = _remaining_percent(data.get("used_percent"))
         minutes = data.get("window_minutes")
+        if generic_remaining is None and remaining is not None:
+            generic_remaining = remaining
+            generic_window_minutes = _positive_int(data.get("window_minutes"))
+            generic_resets_at = _positive_int(data.get("resets_at"))
+        if remaining is not None:
+            valid_windows += 1
         if minutes == 300:
             five_hour = remaining
         elif minutes == 10080:
             seven_day = remaining
 
-    if five_hour is None and seven_day is None:
+    if five_hour is None and seven_day is None and generic_remaining is None:
         return None
+    if valid_windows != 1:
+        generic_remaining = None
+        generic_window_minutes = None
+        generic_resets_at = None
 
     return QuotaSnapshot(
         quota_5h_remaining=five_hour,
         quota_7d_remaining=seven_day,
         quota_updated_at=timestamp.astimezone().strftime("%H:%M"),
         quota_stale=now - timestamp > QUOTA_STALE_AFTER,
+        quota_remaining=generic_remaining,
+        quota_window_minutes=generic_window_minutes,
+        quota_resets_at=generic_resets_at,
     )
 
 
@@ -434,6 +454,16 @@ def _remaining_percent(used_percent: object) -> int | None:
     if not math.isfinite(used):
         return None
     return max(0, min(100, int(round(100.0 - used))))
+
+
+def _positive_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = int(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 def _alert_from_payload(
