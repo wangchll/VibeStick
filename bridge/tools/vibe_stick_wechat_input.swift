@@ -210,7 +210,11 @@ func play(_ audioURL: URL, through deviceID: AudioDeviceID) throws {
     }
 
     let completed = DispatchSemaphore(value: 0)
-    player.scheduleFile(file, at: nil) {
+    // The default completion callback may run once AVAudioEngine has consumed
+    // the scheduled buffers, before the final samples have actually reached
+    // BlackHole. Waiting for dataPlayedBack keeps Fn held through the last
+    // rendered sample so WeChat Input does not clip the final words.
+    player.scheduleFile(file, at: nil, completionCallbackType: .dataPlayedBack) { _ in
         completed.signal()
     }
     try engine.start()
@@ -269,7 +273,7 @@ do {
     )
     let keyCode = CGKeyCode(keyCodeValue)
     let startDelay = max(0, min(2, Double(environment["VIBE_STICK_EXTERNAL_INPUT_START_DELAY"] ?? "0.35") ?? 0.35))
-    let stopDelay = max(0, min(2, Double(environment["VIBE_STICK_EXTERNAL_INPUT_STOP_DELAY"] ?? "0.5") ?? 0.5))
+    let stopDelay = max(0, min(2, Double(environment["VIBE_STICK_EXTERNAL_INPUT_STOP_DELAY"] ?? "0.8") ?? 0.8))
 
     let previousInput = try defaultInputDevice()
     try setDefaultInputDevice(device)
