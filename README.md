@@ -72,6 +72,7 @@ Bridge 和 HUD 会随当前用户登录自动启动。Mac 与 StickS3 需要连�
 - [macOS 安装器构建、测试与打包](app/macos/README.md)
 - [硬件与固件](docs/HARDWARE.md)
 - [架构](docs/ARCHITECTURE.md) 与 [通信协议](docs/PROTOCOL.md)
+- [微信输入法语音输入 MVP](docs/WECHAT_INPUT.md)
 - [环境变量示例](.env.example)
 - [贡献指南](CONTRIBUTING.md) 与 [安全报告](SECURITY.md)
 

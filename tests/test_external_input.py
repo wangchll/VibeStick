@@ -9,6 +9,7 @@ from vibe_stick.audio.external_input import (
     ExternalVoiceInputAdapter,
     _external_input_timeout_seconds,
 )
+from vibe_stick.audio import external_input
 from vibe_stick.command_runner import ShellCommandResult
 
 
@@ -62,6 +63,29 @@ class ExternalVoiceInputAdapterTests(unittest.TestCase):
             clear=True,
         ):
             self.assertEqual(_external_input_timeout_seconds(), 120)
+
+    def test_wechat_provider_uses_built_in_helper(self) -> None:
+        result = ShellCommandResult(returncode=0, stdout="微信输入完成", stderr="")
+        with mock.patch.dict(
+            os.environ,
+            {"VIBE_STICK_EXTERNAL_INPUT_PROVIDER": "wechat-input"},
+            clear=True,
+        ), mock.patch.object(
+            external_input,
+            "_ensure_wechat_helper_binary",
+            return_value=external_input.Path("/tmp/wechat helper"),
+        ), mock.patch.object(
+            external_input,
+            "run_shell_command",
+            return_value=result,
+        ) as runner:
+            adapter = ExternalVoiceInputAdapter()
+            self.assertTrue(adapter.is_configured())
+            committed = adapter.commit({"audio_file": "/tmp/a.wav"})
+
+        self.assertTrue(committed.success)
+        self.assertEqual(committed.source, "wechat-input")
+        self.assertEqual(runner.call_args.args[0], "'/tmp/wechat helper'")
 
 
 if __name__ == "__main__":

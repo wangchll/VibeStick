@@ -459,6 +459,8 @@ def read_dotenv(path):
     return data
 
 def env_has_asr(data):
+    if clean(data.get("VIBE_STICK_EXTERNAL_INPUT_PROVIDER")).lower() == "wechat-input":
+        return True
     if present(data.get("VIBE_STICK_EXTERNAL_INPUT_CMD")):
         return True
     if present(data.get("VIBE_STICK_TRANSCRIBE_CMD")):
