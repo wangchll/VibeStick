@@ -26,18 +26,21 @@ class _FakeResponse:
 
 class TranscriberConfigTests(unittest.TestCase):
     def test_local_command_uses_shared_bounded_runner_failure(self) -> None:
-        with mock.patch.object(
-            transcriber,
-            "run_json_command_hook",
-            return_value=ShellCommandResult(
-                returncode=-9,
-                error="Command stdout exceeds 512 bytes",
-                stdout_truncated=True,
-            ),
-        ) as run:
-            result = transcriber.TranscriptionAdapter().transcribe(
-                {"audio_file": "/tmp/sample.wav"}
-            )
+        with tempfile.TemporaryDirectory() as tmp:
+            audio_file = Path(tmp) / "sample.wav"
+            audio_file.write_bytes(b"RIFF")
+            with mock.patch.object(
+                transcriber,
+                "run_json_command_hook",
+                return_value=ShellCommandResult(
+                    returncode=-9,
+                    error="Command stdout exceeds 512 bytes",
+                    stdout_truncated=True,
+                ),
+            ) as run:
+                result = transcriber.TranscriptionAdapter().transcribe(
+                    {"audio_file": str(audio_file)}
+                )
 
         self.assertFalse(result.success)
         self.assertEqual(result.source, "command")

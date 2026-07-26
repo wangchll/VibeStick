@@ -5,8 +5,8 @@ MODE="${1:-run}"
 APP_NAME="VibeStickSetup"
 BUNDLE_ID="com.vibestick.setup"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${VIBE_STICK_APP_VERSION:-0.2.9}"
-APP_BUILD_VERSION="${VIBE_STICK_APP_BUILD_VERSION:-5}"
+APP_VERSION="${VIBE_STICK_APP_VERSION:-0.2.10}"
+APP_BUILD_VERSION="${VIBE_STICK_APP_BUILD_VERSION:-6}"
 
 if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VIBE_STICK_APP_VERSION must use semantic version format, for example 0.1.7." >&2
@@ -50,8 +50,8 @@ if [[ "$MODE" == "--package" || "$MODE" == "package" ]]; then
   ARM64_BUILD_DIR="$(swift build --package-path "$PACKAGE_DIR" --configuration release --triple "$ARM64_TRIPLE" --show-bin-path)"
   X86_64_BUILD_DIR="$(swift build --package-path "$PACKAGE_DIR" --configuration release --triple "$X86_64_TRIPLE" --show-bin-path)"
 else
-  swift build --package-path "$PACKAGE_DIR"
-  BUILD_DIR="$(swift build --package-path "$PACKAGE_DIR" --show-bin-path)"
+  swift build --package-path "$PACKAGE_DIR" --configuration release
+  BUILD_DIR="$(swift build --package-path "$PACKAGE_DIR" --configuration release --show-bin-path)"
   BUILD_BINARY="$BUILD_DIR/$APP_NAME"
 fi
 
@@ -94,6 +94,7 @@ cp "$ROOT_DIR/bridge/pyproject.toml" "$PROJECT_TEMPLATE/bridge/pyproject.toml"
   "$PROJECT_TEMPLATE/firmware/sticks3/"
 cp \
   "$ROOT_DIR/firmware/sticks3/CMakeLists.txt" \
+  "$ROOT_DIR/firmware/sticks3/partitions.csv" \
   "$ROOT_DIR/firmware/sticks3/sdkconfig.defaults" \
   "$ROOT_DIR/firmware/sticks3/dependencies.lock" \
   "$PROJECT_TEMPLATE/firmware/sticks3/"
@@ -129,6 +130,7 @@ for required in \
   app/macos/VibeStickHUD/main.swift \
   app/macos/VibeStickMenuBar/main.swift \
   firmware/sticks3/CMakeLists.txt \
+  firmware/sticks3/partitions.csv \
   firmware/sticks3/include/vibe_stick_secrets.example.h; do
   if [[ ! -f "$PROJECT_TEMPLATE/$required" ]]; then
     echo "Missing bundled project resource: $required" >&2
