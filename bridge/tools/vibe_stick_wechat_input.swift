@@ -1,6 +1,7 @@
 import ApplicationServices
 import AudioToolbox
 import AVFoundation
+import Carbon
 import Foundation
 
 enum HelperError: LocalizedError {
@@ -11,6 +12,14 @@ enum HelperError: LocalizedError {
         case .message(let value): value
         }
     }
+}
+
+func currentInputSourceIdentifier() throws -> String {
+    let source = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
+    guard let rawIdentifier = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else {
+        throw HelperError.message("Could not read the current macOS input source")
+    }
+    return Unmanaged<CFString>.fromOpaque(rawIdentifier).takeUnretainedValue() as String
 }
 
 func propertyDataSize(
@@ -236,6 +245,14 @@ do {
     }
 
     let environment = ProcessInfo.processInfo.environment
+    let requiredInputSourcePrefix = environment["VIBE_STICK_EXTERNAL_INPUT_SOURCE_PREFIX"]
+        ?? "com.tencent.inputmethod.wetype"
+    let currentInputSource = try currentInputSourceIdentifier()
+    guard currentInputSource.hasPrefix(requiredInputSourcePrefix) else {
+        throw HelperError.message(
+            "WeChat Input must be the current input source (current: \(currentInputSource))"
+        )
+    }
     let device = try outputDevice(named: environment["VIBE_STICK_EXTERNAL_INPUT_DEVICE"] ?? "BlackHole 2ch")
     let shortcutMode = environment["VIBE_STICK_EXTERNAL_INPUT_SHORTCUT_MODE"] ?? "fn-hold"
     guard shortcutMode == "fn-hold" || shortcutMode == "toggle" else {
