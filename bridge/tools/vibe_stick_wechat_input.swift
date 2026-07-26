@@ -95,18 +95,22 @@ func shortcutFlags(from raw: String) throws -> CGEventFlags {
     return flags
 }
 
-func postShortcut(keyCode: CGKeyCode, flags: CGEventFlags) throws {
-    guard
-        let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
-        let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false)
-    else {
+func postKey(keyCode: CGKeyCode, flags: CGEventFlags, keyDown: Bool) throws {
+    guard let event = CGEvent(
+        keyboardEventSource: nil,
+        virtualKey: keyCode,
+        keyDown: keyDown
+    ) else {
         throw HelperError.message("Could not create the WeChat Input shortcut event")
     }
-    down.flags = flags
-    up.flags = flags
-    down.post(tap: .cghidEventTap)
+    event.flags = keyDown ? flags : []
+    event.post(tap: .cghidEventTap)
+}
+
+func tapShortcut(keyCode: CGKeyCode, flags: CGEventFlags) throws {
+    try postKey(keyCode: keyCode, flags: flags, keyDown: true)
     usleep(30_000)
-    up.post(tap: .cghidEventTap)
+    try postKey(keyCode: keyCode, flags: flags, keyDown: false)
 }
 
 func play(_ audioURL: URL, through deviceID: AudioDeviceID) throws {
@@ -169,28 +173,46 @@ do {
 
     let environment = ProcessInfo.processInfo.environment
     let device = try outputDevice(named: environment["VIBE_STICK_EXTERNAL_INPUT_DEVICE"] ?? "BlackHole 2ch")
-    let keyCodeRaw = environment["VIBE_STICK_EXTERNAL_INPUT_KEYCODE"] ?? "49"
+    let shortcutMode = environment["VIBE_STICK_EXTERNAL_INPUT_SHORTCUT_MODE"] ?? "fn-hold"
+    guard shortcutMode == "fn-hold" || shortcutMode == "toggle" else {
+        throw HelperError.message("External-input shortcut mode must be fn-hold or toggle")
+    }
+    let keyCodeRaw = environment["VIBE_STICK_EXTERNAL_INPUT_KEYCODE"]
+        ?? (shortcutMode == "fn-hold" ? "63" : "49")
     guard let keyCodeValue = UInt16(keyCodeRaw) else {
         throw HelperError.message("Invalid external-input shortcut key code")
     }
     let flags = try shortcutFlags(
-        from: environment["VIBE_STICK_EXTERNAL_INPUT_MODIFIERS"] ?? "control,option"
+        from: environment["VIBE_STICK_EXTERNAL_INPUT_MODIFIERS"]
+            ?? (shortcutMode == "fn-hold" ? "fn" : "control,option")
     )
     let keyCode = CGKeyCode(keyCodeValue)
     let startDelay = max(0, min(2, Double(environment["VIBE_STICK_EXTERNAL_INPUT_START_DELAY"] ?? "0.35") ?? 0.35))
     let stopDelay = max(0, min(2, Double(environment["VIBE_STICK_EXTERNAL_INPUT_STOP_DELAY"] ?? "0.5") ?? 0.5))
 
-    try postShortcut(keyCode: keyCode, flags: flags)
+    if shortcutMode == "fn-hold" {
+        try postKey(keyCode: keyCode, flags: flags, keyDown: true)
+    } else {
+        try tapShortcut(keyCode: keyCode, flags: flags)
+    }
     var needsStop = true
     defer {
         if needsStop {
-            try? postShortcut(keyCode: keyCode, flags: flags)
+            if shortcutMode == "fn-hold" {
+                try? postKey(keyCode: keyCode, flags: flags, keyDown: false)
+            } else {
+                try? tapShortcut(keyCode: keyCode, flags: flags)
+            }
         }
     }
     Thread.sleep(forTimeInterval: startDelay)
     try play(URL(fileURLWithPath: audioPath), through: device)
     Thread.sleep(forTimeInterval: stopDelay)
-    try postShortcut(keyCode: keyCode, flags: flags)
+    if shortcutMode == "fn-hold" {
+        try postKey(keyCode: keyCode, flags: flags, keyDown: false)
+    } else {
+        try tapShortcut(keyCode: keyCode, flags: flags)
+    }
     needsStop = false
     print("WeChat Input consumed the StickS3 recording")
 } catch {
