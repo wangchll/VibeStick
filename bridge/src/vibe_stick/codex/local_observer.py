@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -22,6 +23,7 @@ from vibe_stick.providers._jsonl import (
 
 CODEX_HOME = Path.home() / ".codex"
 SESSIONS_DIR = CODEX_HOME / "sessions"
+DESKTOP_LOGS_DIR = Path.home() / "Library/Logs/com.openai.codex"
 TAIL_BYTES = 1_500_000
 MAX_SESSION_FILES = 40
 RUNNING_ACTIVITY_WINDOW = timedelta(minutes=4)
@@ -72,6 +74,7 @@ class _CodexSessionSummary:
     latest_task_started: datetime | None
     latest_alert: tuple[datetime, AgentStatus, str, str, str] | None
     pending_approval_alert: tuple[datetime, AgentStatus, str, str, str] | None
+    latest_approvals_reviewer: tuple[datetime, str] | None
     latest_quota: tuple[datetime, QuotaSnapshot] | None
 
 
@@ -81,6 +84,7 @@ _SESSION_CLASSIFICATION_CACHE: FileSummaryCache[bool] = FileSummaryCache(max_ent
 
 def observe_codex(project_root: Path) -> LocalCodexObservation:
     now = datetime.now(timezone.utc)
+    latest_approval_response = _latest_desktop_approval_response()
     codex_online = _codex_process_running()
     project = _project_name_from_env_or_root(project_root)
     session_paths = _session_files()
@@ -116,8 +120,13 @@ def observe_codex(project_root: Path) -> LocalCodexObservation:
         summary.pending_approval_alert
         for summary in summaries
         if summary.pending_approval_alert is not None
+        and _summary_can_require_user_approval(summary)
         and now - summary.pending_approval_alert[0] >= APPROVAL_CONFIRMATION_DELAY
         and now - summary.pending_approval_alert[0] <= ALERT_ACTIVITY_WINDOW
+        and (
+            latest_approval_response is None
+            or summary.pending_approval_alert[0] > latest_approval_response
+        )
     )
     latest_alert: tuple[datetime, AgentStatus, str, str, str] | None = None
     if current_alerts:
@@ -188,6 +197,7 @@ def _summarize_session(path: Path) -> _CodexSessionSummary | None:
     latest_alert: tuple[datetime, AgentStatus, str, str, str] | None = None
     latest_quota: tuple[datetime, QuotaSnapshot] | None = None
     pending_approval_calls: dict[str, datetime] = {}
+    latest_approvals_reviewer: tuple[datetime, str] | None = None
 
     for event in events:
         timestamp = _parse_timestamp(event.get("timestamp"))
@@ -199,6 +209,13 @@ def _summarize_session(path: Path) -> _CodexSessionSummary | None:
         payload = payload if isinstance(payload, dict) else {}
         payload_type = str(payload.get("type") or top_type)
         candidate_type = payload_type or top_type
+
+        reviewer = _approvals_reviewer_from_payload(payload)
+        if reviewer and (
+            latest_approvals_reviewer is None
+            or timestamp > latest_approvals_reviewer[0]
+        ):
+            latest_approvals_reviewer = (timestamp, reviewer)
 
         if candidate_type == "custom_tool_call":
             call_id = _pending_approval_call_id(payload)
@@ -288,6 +305,7 @@ def _summarize_session(path: Path) -> _CodexSessionSummary | None:
         latest_task_started=latest_task_started,
         latest_alert=latest_alert,
         pending_approval_alert=pending_approval_alert,
+        latest_approvals_reviewer=latest_approvals_reviewer,
         latest_quota=latest_quota,
     )
 
@@ -302,6 +320,65 @@ def _pending_approval_call_id(payload: dict[str, Any]) -> str:
     if '"sandbox_permissions":"require_escalated"' not in compact:
         return ""
     return str(payload.get("call_id") or "")
+
+
+def _approvals_reviewer_from_payload(payload: dict[str, Any]) -> str:
+    direct = payload.get("approvals_reviewer")
+    if isinstance(direct, str) and direct:
+        return direct
+    thread_settings = payload.get("thread_settings")
+    if isinstance(thread_settings, dict):
+        nested = thread_settings.get("approvals_reviewer")
+        if isinstance(nested, str) and nested:
+            return nested
+    return ""
+
+
+def _summary_can_require_user_approval(summary: _CodexSessionSummary) -> bool:
+    reviewer = summary.latest_approvals_reviewer
+    # Older Codex builds did not record this field, so preserve the previous
+    # behavior when it is unknown. Explicit automatic reviewers never wait for
+    # the physical user and must not trigger the Stick alert.
+    return reviewer is None or reviewer[1] == "user"
+
+
+_DESKTOP_APPROVAL_RESPONSE_PATTERN = re.compile(
+    rb"^(\S+) .*Sending server response .*method=[^ ]*requestApproval\b",
+    re.MULTILINE,
+)
+
+
+def _latest_desktop_approval_response() -> datetime | None:
+    """Return the newest real UI approval decision recorded by Codex Desktop.
+
+    Session JSONL writes a custom_tool_call before its output is appended, and
+    that gap can outlive the actual permission dialog. The desktop log records
+    accept/decline immediately, so it closes that false pending window.
+    """
+    try:
+        candidates = sorted(
+            (path for path in DESKTOP_LOGS_DIR.glob("*/*/*/*.log") if path.is_file()),
+            key=lambda path: path.stat().st_mtime_ns,
+            reverse=True,
+        )[:4]
+    except OSError:
+        return None
+
+    latest: datetime | None = None
+    for path in candidates:
+        try:
+            with path.open("rb") as handle:
+                handle.seek(0, os.SEEK_END)
+                size = handle.tell()
+                handle.seek(max(0, size - 512_000))
+                data = handle.read()
+        except OSError:
+            continue
+        for match in _DESKTOP_APPROVAL_RESPONSE_PATTERN.finditer(data):
+            timestamp = _parse_timestamp(match.group(1).decode("utf-8", errors="replace"))
+            if timestamp is not None and (latest is None or timestamp > latest):
+                latest = timestamp
+    return latest
 
 
 def _latest_summary(

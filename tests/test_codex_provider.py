@@ -14,18 +14,33 @@ from vibe_stick.providers.codex import observation_from_local_codex
 
 
 class CodexProviderTests(unittest.TestCase):
-    def _observe_events(self, events: list[dict[str, object]]) -> LocalCodexObservation:
-        return self._observe_sessions({"codex-session": events})
+    def _observe_events(
+        self,
+        events: list[dict[str, object]],
+        *,
+        latest_approval_response: datetime | None = None,
+    ) -> LocalCodexObservation:
+        return self._observe_sessions(
+            {"codex-session": events},
+            latest_approval_response=latest_approval_response,
+        )
 
     def _observe_sessions(
         self,
         sessions: dict[str, list[dict[str, object]]],
+        *,
+        latest_approval_response: datetime | None = None,
     ) -> LocalCodexObservation:
         paths = [Path(f"/tmp/{name}.jsonl") for name in sessions]
         events_by_path = dict(zip(paths, sessions.values(), strict=True))
         with (
             patch.object(local_observer, "_codex_process_running", return_value=True),
             patch.object(local_observer, "_session_files", return_value=paths),
+            patch.object(
+                local_observer,
+                "_latest_desktop_approval_response",
+                return_value=latest_approval_response,
+            ),
             patch.object(
                 local_observer,
                 "_tail_json_events",
@@ -743,6 +758,55 @@ class CodexProviderTests(unittest.TestCase):
 
         self.assertEqual(observation.status, AgentStatus.APPROVAL)
         self.assertEqual(observation.alert_type, "APPROVAL")
+
+    def test_desktop_approval_response_clears_jsonl_pending_gap(self) -> None:
+        now = datetime.now(timezone.utc)
+        tool_call = {
+            "timestamp": (now - timedelta(seconds=3)).isoformat(),
+            "type": "response_item",
+            "payload": {
+                "type": "custom_tool_call",
+                "call_id": "call-already-approved",
+                "name": "exec",
+                "input": '{"sandbox_permissions":"require_escalated"}',
+            },
+        }
+
+        observation = self._observe_events(
+            [tool_call],
+            latest_approval_response=now - timedelta(seconds=1),
+        )
+
+        self.assertNotEqual(observation.status, AgentStatus.APPROVAL)
+        self.assertEqual(observation.alert_type, "")
+
+    def test_automatic_reviewer_never_reports_user_approval(self) -> None:
+        now = datetime.now(timezone.utc)
+        events = [
+            {
+                "timestamp": (now - timedelta(seconds=4)).isoformat(),
+                "type": "event_msg",
+                "payload": {
+                    "type": "thread_settings_applied",
+                    "thread_settings": {"approvals_reviewer": "auto_review"},
+                },
+            },
+            {
+                "timestamp": (now - timedelta(seconds=3)).isoformat(),
+                "type": "response_item",
+                "payload": {
+                    "type": "custom_tool_call",
+                    "call_id": "call-auto-reviewed",
+                    "name": "exec",
+                    "input": '{"sandbox_permissions":"require_escalated"}',
+                },
+            },
+        ]
+
+        observation = self._observe_events(events)
+
+        self.assertNotEqual(observation.status, AgentStatus.APPROVAL)
+        self.assertEqual(observation.alert_type, "")
 
     def test_completed_escalated_tool_call_clears_approval(self) -> None:
         now = datetime.now(timezone.utc)
