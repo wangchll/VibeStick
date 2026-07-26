@@ -26,8 +26,8 @@ VibeStick is an early-preview hobby project. Security-relevant areas:
   `firmware/sticks3/include/vibe_stick_secrets.h` — never commit them.
 - Setup and install restrict local secret files to the current user. Do not weaken those file
   permissions or place the repository under a directory readable by other accounts.
-- The developer-preview macOS setup app runs firmware and Bridge scripts from the current
-  checkout. Only use it with a repository you trust. It rejects symlink secret destinations,
+- The developer-preview macOS setup app runs firmware and Bridge scripts from its embedded,
+  versioned project template. Only use an installer build you trust. It rejects symlink secret destinations,
   writes configuration atomically with mode `0600`, keeps an auxiliary copy in the user's
   macOS login Keychain, bounds technical logs, and redacts managed credentials. The local
   ad-hoc-signed build deliberately avoids the entitlement-only Data Protection backend. Its optional

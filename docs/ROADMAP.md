@@ -20,6 +20,13 @@
 - Harden local config parsing, permissions, and diagnostics.
 - Add Python-version, shell, Swift helper, and ESP-IDF CI coverage.
 
+## v0.2.12 delivered
+
+- Three voice-input modes: cloud API, local Whisper, and streaming WeChat Input.
+- StickS3-side allow/reject controls for real Codex approval prompts.
+- Approval lifecycle filtering to prevent automatic-review and stale-session alerts.
+- Larger firmware application partition and installer-only synchronized delivery.
+
 ## Future packaging
 
 - Package the Mac App / helper workflow.

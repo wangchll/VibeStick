@@ -1,6 +1,6 @@
 # Protocol
 
-VibeStick v0.1.7 uses HTTP over Wi-Fi between the StickS3 firmware and the local Mac bridge.
+VibeStick v0.2.12 uses HTTP over Wi-Fi between the StickS3 firmware and the local Mac bridge.
 
 Default bridge URL:
 
@@ -14,7 +14,7 @@ Firmware requests include:
 
 ```text
 X-Vibe-Stick-Firmware-Name: vibestick
-X-Vibe-Stick-Firmware-Version: 0.1.7
+X-Vibe-Stick-Firmware-Version: 0.2.12
 X-Vibe-Stick-Firmware-Transport: HTTP
 X-Vibe-Stick-Firmware-Build-Date: <compile date>
 ```
@@ -83,7 +83,7 @@ Returns the current bridge state:
     "message": ""
   },
   "bridge_name": "vibestick-bridge",
-  "bridge_version": "0.1.7"
+  "bridge_version": "0.2.12"
 }
 ```
 
@@ -101,7 +101,7 @@ Returns bridge health metadata:
 {
   "ok": true,
   "bridge_name": "vibestick-bridge",
-  "bridge_version": "0.1.7"
+  "bridge_version": "0.2.12"
 }
 ```
 
@@ -126,6 +126,8 @@ After a recording finishes successfully, the Bridge accepts button actions for 3
 ```
 
 Manual `DONE`, `ERROR`, and `APPROVAL` statuses produce alert fields for local testing.
+
+The right-side button sends `button_approval_confirm` on a single click and `button_approval_cancel` on a double click. The Bridge acts only while a confirmed approval is pending: confirm activates Codex and sends Return; cancel activates Codex and sends Escape. Without a pending approval, these host actions are ignored while the firmware still changes dashboard/Roxy view.
 
 ## POST /quota/refresh
 
@@ -190,4 +192,4 @@ Stops the session and runs transcription:
 {"event":"button_long_stop","source":"sticks3","paste":true,"session_id":"<firmware-generated-id>"}
 ```
 
-When transcription succeeds, the bridge pastes the transcript into the focused macOS app. Recording status does not trigger agent alert sounds.
+In cloud/local modes, the Bridge pastes a successful transcript into the focused macOS app. In WeChat mode, WeChat Input writes directly into the field that owned focus when the Fn session began. Recording status does not trigger agent alert sounds.

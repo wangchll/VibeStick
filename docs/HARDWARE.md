@@ -2,7 +2,7 @@
 
 ## Supported Device
 
-VibeStick v0.1.7 targets M5Stack StickS3.
+VibeStick v0.2.12 targets M5Stack StickS3.
 
 The project does not currently claim support for other devices because the UI layout, front button behavior, microphone path, speaker path, PMIC battery reads, and screen size are all written around StickS3.
 
@@ -10,7 +10,7 @@ The project does not currently claim support for other devices because the UI la
 
 - Screen: LVGL UI on the StickS3 display.
 - Blue front button (`KEY1`, GPIO 11): long press records push-to-talk audio until release. For 30 seconds after a successful recording, single click sends the focused draft and double click stops the current Codex turn.
-- Large right-side button (`KEY2`, GPIO 12): single/double click switches views and handles pending approval; a 700 ms long press clears the latest pasted voice draft.
+- Large right-side button (`KEY2`, GPIO 12): single click shows Roxy and allows a pending approval; double click shows the dashboard and rejects a pending approval; a 700 ms long press clears the latest pasted voice draft.
 - Corner power button: device power and firmware download-mode control; it is not an application input and is distinct from `KEY2`.
 - Microphone: StickS3 microphone captured as 16 kHz / 16-bit / mono PCM.
 - Speaker: ES8311 / I2S playback for generated agent status tones.
@@ -49,6 +49,8 @@ Edit:
 
 Do not commit `vibe_stick_secrets.h`.
 
+The firmware uses `partitions.csv` with a 3 MB factory application partition. This is a normal ESP-IDF partition-table change: NVS, PHY data, and the application start offset remain fixed, while unused flash space is assigned to the larger application slot. It does not erase or relocate the configured NVS area.
+
 The Wi-Fi network must be 2.4 GHz. If the SSID is a combined 2.4/5 GHz network and the StickS3 cannot connect, create or select a dedicated 2.4 GHz SSID.
 
 ## Roxy Animation Assets
@@ -73,12 +75,14 @@ Load ESP-IDF into every new terminal before running `idf.py`:
 
 Adjust the path if ESP-IDF is installed elsewhere. If you see `command not found: idf.py`, this shell has not loaded ESP-IDF yet.
 
-From the firmware directory:
+For development diagnostics, from the firmware directory:
 
 ```sh
 cd firmware/sticks3
 idf.py build flash monitor
 ```
+
+Formal installation and firmware updates must use the current `VibeStickSetup.app`; direct flashing does not count as a delivered installation.
 
 If automatic flashing fails, put the StickS3 into download mode and retry:
 

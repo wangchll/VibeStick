@@ -10,13 +10,13 @@ The current SwiftUI app embeds a minimal clean project template and installs it 
 writable `~/Library/Application Support/VibeStick/InstallerProject` workspace. It never scans the
 app bundle's parent checkout, and template updates preserve the workspace's `.env` and firmware
 secrets. Its normal UI is a single three-step
-wizard—network, alert volume, and optional voice input, device connection, then automatic installation. Serial
+wizard—network, alert volume, and optional cloud voice input, device connection, then automatic installation. The installed menu-bar app preserves three runtime choices: cloud API, local Whisper, and WeChat Input. Serial
 metadata, model endpoints, diagnostics, and raw logs are available only as advanced or technical
 details.
 
 Under that simple flow it:
 
-1. Validate and atomically save Wi‑Fi, Bridge, StickS3 alert-volume, and ASR configuration, then verify the API key and model with a one-second silent transcription request.
+1. Validate and atomically save Wi‑Fi, Bridge, StickS3 alert-volume, and cloud ASR configuration, then verify the API key and model with a one-second silent transcription request. Local Whisper and WeChat Input require no API test.
 2. Keep reusable secrets in a versioned macOS login-Keychain namespace while writing the runtime files required by the existing firmware and Bridge. Startup reads disallow authentication UI, and local packaging prefers an available Apple Development identity so rebuilds keep a stable code-signing identity. A release may opt into the Data Protection backend with the proper entitlement.
 3. Discover serial devices and stable USB identity through IOKit.
 4. Install a pinned, checksum-verified user-local Python 3.12 runtime and ESP-IDF 5.5.1 when needed; if Apple Command Line Tools are absent, open the macOS system installer and keep checking until they are available.
@@ -24,6 +24,8 @@ Under that simple flow it:
 6. Stream bounded, redacted logs, allow cancellation of the whole child process group, and retain a non-secret recovery journal if flashing is interrupted.
 
 The app uses native SwiftUI with separate Core and Platform targets so validation, redaction, parsing, and repository writes can be tested without launching the UI.
+
+Every release rebuilds the self-contained app and refreshes the versioned managed template while preserving `.env` and firmware secrets. Repository, bundled-template, and managed-template copies of changed deployable files must match before tagging. The installer is the supported path for both Mac deployment and firmware flashing.
 
 ## Public installer target
 

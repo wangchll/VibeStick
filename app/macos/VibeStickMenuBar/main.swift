@@ -221,7 +221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(inst)
         menu.addItem(.separator())
 
-        let about = NSMenuItem(title: "关于 VibeStick v0.2.11", action: nil, keyEquivalent: "")
+        let about = NSMenuItem(title: "关于 VibeStick v0.2.12", action: nil, keyEquivalent: "")
         menu.addItem(about)
 
         let quit = NSMenuItem(title: "退出菜单栏图标", action: #selector(quitMenuBar), keyEquivalent: "")

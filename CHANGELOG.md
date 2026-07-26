@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.12
+
+- Keep three selectable voice-input modes in the macOS menu bar: cloud API, fully local Whisper, and WeChat Input.
+- Stream StickS3 PCM into `BlackHole 2ch` while holding WeChat Input's default Fn shortcut, drain the complete audio queue plus tail silence, and restore the original microphone without sending audio to the speakers.
+- Let the StickS3 right-side button allow a real Codex approval with a single click and reject it with a double click, targeting the actual Codex accessibility process with Return/Escape.
+- Confirm approval state before sounding or displaying it, suppress automatic-review false positives, and clear stale pending state from Codex Desktop approval decisions.
+- Expand the ESP32-S3 application partition to 3 MB, leaving roughly 53% free for the current firmware.
+- Harden release delivery: synchronize version numbers, embed every Mac/firmware update in the self-contained installer, preserve user secrets during template refresh, and build the installer in release mode by default.
+- Refresh user, architecture, protocol, hardware, sound, installer, and contribution documentation for the current behavior.
+
+The WeChat Input integration, local Whisper mode, approval controls, and approval-state lifecycle were validated on the development setup before this tag.
+
 ## v0.1.7
 
 - Add a 0–100% StickS3 alert-volume control to the macOS Setup App, persist it in the generated firmware configuration, and apply it to completion, approval, and error tones.

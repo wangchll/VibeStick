@@ -16,7 +16,8 @@ flowchart LR
   Stick --> Speaker["StickS3 speaker"]
   Stick --> Mic["StickS3 microphone"]
   Bridge --> Paste["macOS paste injection"]
-  Bridge --> ASR["Optional ASR provider or local command"]
+  Bridge --> ASR["Cloud API or local Whisper"]
+  Bridge --> WeChat["WeChat Input via BlackHole + held Fn"]
 ```
 
 ## StickS3 Firmware
@@ -48,7 +49,7 @@ It owns:
 - HTTP API for the StickS3.
 - Local Codex status and quota observation from `~/.codex/sessions/**/*.jsonl`.
 - Recording session state.
-- Optional ASR via a local command or an OpenAI-compatible API.
+- Three menu-bar-selectable voice paths: an OpenAI-compatible cloud API, fully local Whisper, or WeChat Input through a virtual microphone.
 - Transcript paste injection into the active macOS app.
 - Return-key injection for sending a draft and Codex-targeted Escape injection for stopping the current turn, gated by the 30-second post-recording action window.
 - HUD state file updates for recording status.
@@ -61,7 +62,7 @@ Bridge state is stored under:
 
 ## Transport
 
-v0.1.7 uses HTTP over Wi-Fi.
+v0.2.12 uses HTTP over Wi-Fi.
 
 BLE is not part of the current mainline transport. USB is used for flashing and serial logs, not for runtime state transport.
 
@@ -80,9 +81,9 @@ HTTP traffic is not encrypted. The shared token authorizes protected requests bu
 1. User long-presses the blue front button.
 2. Firmware starts StickS3 microphone recording and posts `/recording/start`.
 3. Firmware shows a full-screen listening overlay.
-4. User releases the button.
-5. Firmware stops recording, uploads PCM to `/recording/audio`, then posts `/recording/stop`.
-6. Bridge writes a local WAV file, runs ASR, and pastes the transcript when successful.
+4. Firmware streams offset-addressed PCM chunks while the button remains held; retries are idempotent.
+5. User releases the button, firmware sends the final chunk, then posts `/recording/stop`.
+6. Cloud/local modes write a WAV, run ASR, and paste the transcript. WeChat mode drains the virtual-microphone queue and tail silence before releasing Fn; WeChat writes directly into the focused field.
 7. Recording start and stop do not play agent alert sounds.
 
 ## Status And Quota
@@ -93,7 +94,7 @@ Codex observation covers all user-started root conversations visible in local se
 
 The StickS3 home screen is dedicated to Codex status and quota.
 
-## v0.1.7 Limits
+## v0.2.12 Limits
 
 - No Apple-notarized DMG; the release provides a signed universal App in a ZIP archive.
 - No signed firmware release artifact.

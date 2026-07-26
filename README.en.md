@@ -19,7 +19,7 @@ You need:
 - A 2.4 GHz Wi-Fi name and password.
 - An optional ASR API key. [SiliconFlow](https://cloud.siliconflow.cn) is recommended; other OpenAI-compatible services are supported.
 
-The recommended route is the [VibeStickSetup v0.1.7 universal macOS installer](https://github.com/deanxizian/VibeStick/releases/download/v0.1.7/VibeStickSetup-v0.1.7-macos-universal.zip). It supports both Apple Silicon and Intel. Unzip it and open the app. The installer is signed with hardened runtime but is not Apple-notarized yet; if macOS blocks the first launch, right-click the app and choose Open.
+The current source version is **v0.2.12**. The previously published package remains available from the [v0.1.7 release](https://github.com/deanxizian/VibeStick/releases/tag/v0.1.7). Build the current source when you need WeChat Input streaming, offline Whisper, and approval controls. The installer supports Apple Silicon and Intel but is not Apple-notarized yet; if macOS blocks the first launch, right-click the app and choose Open.
 
 You can also build it from source:
 
@@ -41,12 +41,13 @@ The first installation downloads about 1 GB of ESP-IDF components. Keep the Mac 
 
 ## Controls
 
-- Hold the front blue button to speak; release it to transcribe and paste.
+- Choose cloud API, local Whisper, or WeChat Input from the menu-bar “语音识别模式” menu. All three modes remain available.
+- Hold the front blue button to speak; release it to finish the selected input mode. WeChat mode streams from press-down and holds WeChat Input's default Fn shortcut without changing its settings.
 - For 30 seconds after a successful recording, single-click the blue button to send the current draft.
 - For 30 seconds after a successful recording, double-click the blue button to pause the current Codex task.
-- Single-click the large right-side button to switch between the Codex dashboard and the Roxy pet view. Roxy's animation follows Codex status.
+- Single-click the large right-side button to show Roxy and allow a real pending Codex approval. Double-click it to return to the dashboard and reject a pending approval.
 - Alert volume is adjustable from 0–100% in the installer and takes effect after reinstalling and reflashing.
-- Reopen the installer to change Wi-Fi, alert-volume, or ASR settings, or to reflash the device.
+- Reopen the latest installer to change Wi-Fi, alert-volume, or voice settings, or to reflash. The installer is the supported path for both Mac updates and firmware flashing.
 
 Bridge and HUD start automatically at login. The Mac and StickS3 must be on the same LAN.
 
@@ -56,6 +57,7 @@ Bridge and HUD start automatically at login. The Mac and StickS3 must be on the 
 - **Wi-Fi does not connect**: StickS3 supports 2.4 GHz Wi-Fi only.
 - **ASR API test fails**: check the API URL, key, model, and network.
 - **Transcription works but paste does not**: grant Microphone and Accessibility access in System Settings → Privacy & Security.
+- **WeChat Input does not appear**: select WeChat Input as the current input source, keep focus in the destination text field, and install `BlackHole 2ch`; see [WeChat Input](docs/WECHAT_INPUT.md).
 - **Installation was interrupted**: keep the cable connected and run the installer again.
 
 ## Uninstall Mac services
@@ -71,6 +73,7 @@ Add `--purge` to also remove configuration, logs, and runtime data from `~/Libra
 - [Build, test, and package the macOS installer](app/macos/README.md)
 - [Hardware and firmware](docs/HARDWARE.md)
 - [Architecture](docs/ARCHITECTURE.md) and [protocol](docs/PROTOCOL.md)
+- [WeChat Input streaming](docs/WECHAT_INPUT.md)
 - [Environment-variable reference](.env.example)
 - [Contributing](CONTRIBUTING.md) and [security reporting](SECURITY.md)
 

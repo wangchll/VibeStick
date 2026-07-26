@@ -1,12 +1,12 @@
 # States And Sounds
 
-VibeStick v0.1.7 plays sounds only for key agent status changes on the home screen. Recording states do not play sounds.
+VibeStick v0.2.12 plays sounds only for key agent status changes on the home screen. Recording states and WeChat virtual-audio streaming do not play sounds.
 
 | State | Trigger | Sound |
 | --- | --- | --- |
 | Completed / 完成 | Any user-started root Codex conversation finishes | 880 Hz 80 ms, 40 ms gap, 1320 Hz 120 ms |
 | Error / 报错 | Codex reports `ERROR`, `FAILED`, or `FAILURE` | 240 Hz 100 ms, 60 ms gap, repeated 3 times |
-| Waiting for approval / 等待审批 | Codex reports a pending `require_escalated` tool call or an explicit approval state | 740 Hz 90 ms, 50 ms gap, 1040 Hz 90 ms, 50 ms gap, 740 Hz 140 ms |
+| Waiting for approval / 等待审批 | A user-reviewed Codex `require_escalated` request remains pending after a 1.5-second confirmation delay | 740 Hz 90 ms, 50 ms gap, 1040 Hz 90 ms, 50 ms gap, 740 Hz 140 ms |
 
 ## No Sound
 
@@ -24,6 +24,8 @@ These states and events do not play sounds:
 - Quota stale.
 - Screen refresh.
 - `/state` polling.
+- Automatic approval reviewers (`auto_review` and guardian reviewers).
+- WeChat Input's BlackHole playback path; it feeds a virtual microphone, not the system speaker.
 
 ## Implementation
 
@@ -34,6 +36,8 @@ The firmware generates 16 kHz mono 16-bit PCM in memory and plays it through the
 Recording has priority. If recording is active, up to 32 alert sounds are queued and played after the recording overlay closes.
 
 Duplicate prevention lives in `firmware/sticks3/src/main.c`. A sound is played only once for a new `alert.event_id`; if no event id exists, the firmware falls back to status-edge detection.
+
+The Bridge treats session JSONL as an approval candidate, not proof that a dialog is still visible. It checks the session's approval reviewer, waits briefly for confirmation, and uses Codex Desktop's recorded approval response to clear the transient gap before JSONL output arrives. This prevents stale or automatically reviewed calls from producing a sound or `等待授权` state.
 
 Codex includes the same `turn_id` in `task_started` and `task_complete`. The Bridge
 observes every user-started root conversation on the Mac and publishes a uniquely

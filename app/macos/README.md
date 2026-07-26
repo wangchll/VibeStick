@@ -4,7 +4,7 @@ This document covers development and delivery details for the macOS apps. For no
 
 This directory contains two separate macOS components:
 
-- `VibeStickSetup` is the native SwiftUI setup app. Its three-step wizard collects Wi‑Fi, StickS3 alert-volume, and optional voice-input settings, finds the StickS3 automatically, then prepares the toolchain, builds and flashes firmware, explicitly starts the device after flashing, installs the Bridge, and verifies the result. Advanced fields, diagnostics, and technical logs stay out of the main path.
+- `VibeStickSetup` is the native SwiftUI setup app. Its three-step wizard collects Wi‑Fi, StickS3 alert-volume, and optional cloud voice-input settings, finds the StickS3 automatically, then prepares the toolchain, builds and flashes firmware, explicitly starts the device after flashing, installs the Bridge/menu-bar app, and verifies the result. The installed menu-bar app switches among cloud API, local Whisper, and WeChat Input modes. Advanced fields, diagnostics, and technical logs stay out of the main path.
 - `VibeStickHUD` is the small AppKit recording-status overlay installed with the Bridge LaunchAgent.
 
 ## Run the setup app
@@ -24,6 +24,10 @@ Run its tests with:
 ```sh
 swift test --package-path app/macos
 ```
+
+## Release discipline
+
+Every delivered change increments the shared patch version across Bridge, firmware, Setup, installed menu-bar About text, and installer metadata. Run `./script/build_and_run.sh build`, launch the resulting installer to refresh its managed `InstallerProject`, and verify changed deployable files match across the repository, bundled template, and managed template. Template refresh must preserve `.env` and `vibe_stick_secrets.h`; both Mac installation and firmware flashing are performed through this installer.
 
 ## Current delivery boundary
 

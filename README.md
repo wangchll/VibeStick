@@ -19,7 +19,7 @@ VibeStick 把 M5Stack StickS3 变成一个 Codex 桌面终端：显示任务状�
 - 2.4 GHz Wi-Fi 名称和密码。
 - 可选的语音转写 API Key；推荐 [SiliconFlow](https://cloud.siliconflow.cn)，也支持其他 OpenAI 兼容服务。
 
-推荐直接下载 [VibeStickSetup v0.1.7 macOS 通用安装器](https://github.com/deanxizian/VibeStick/releases/download/v0.1.7/VibeStickSetup-v0.1.7-macos-universal.zip)。它同时支持 Apple Silicon 和 Intel；解压后打开 App 即可。安装器已签名并启用 hardened runtime，但尚未经过 Apple 公证，若首次打开被 macOS 阻止，请右键 App 后选择“打开”。
+最新源码版本为 **v0.2.12**。已公开发布的安装包仍可从 [v0.1.7 Release](https://github.com/deanxizian/VibeStick/releases/tag/v0.1.7) 下载；需要微信语音输入、离线 Whisper 和右键审批控制时，请从当前源码构建最新版安装器。安装器支持 Apple Silicon 和 Intel；尚未经过 Apple 公证，若首次打开被 macOS 阻止，请右键 App 后选择“打开”。
 
 也可以从源码构建：
 
@@ -41,13 +41,14 @@ cd VibeStick
 
 ## 使用
 
-- 长按正面蓝键说话，松开后转写并粘贴。
+- 在 Mac 状态栏的“语音识别模式”中选择云端 API、本地 Whisper 或微信语音输入法；三种模式彼此独立保留。
+- 长按正面蓝键说话，松开后完成当前模式的输入。微信模式会从按下时开始流式传输，并模拟微信输入法默认的长按 Fn，无需修改微信快捷键。
 - 录音成功后的 30 秒内，单击蓝键发送当前草稿。
 - 录音成功后的 30 秒内，双击蓝键暂停当前 Codex 任务。
-- 单击右侧大矩形键，在 Codex 监控面板与 Roxy 宠物页面之间切换；宠物动作会跟随 Codex 状态。
+- 单击右侧大矩形键切换到 Roxy 页面；有真实 Codex 授权框时同时“允许”。双击切回监控页；有授权框时同时“拒绝”。
 - 语音文字粘贴错误时，长按右侧大矩形键约 0.7 秒，清空 Codex 输入框中的语音草稿。
 - 提醒音音量可在安装器中按 0–100% 调节；重新安装并烧录后生效。
-- 修改 Wi-Fi、提醒音音量、语音 API 或重新烧录时，再次打开安装器并重新安装。
+- 修改 Wi-Fi、提醒音音量、语音配置或重新烧录时，再次打开最新版安装器并重新安装。Mac 软件安装和固件刷新都以安装器为唯一正式交付路径。
 
 Bridge 和 HUD 会随当前用户登录自动启动。Mac 与 StickS3 需要连接同一局域网。
 
@@ -57,6 +58,8 @@ Bridge 和 HUD 会随当前用户登录自动启动。Mac 与 StickS3 需要连�
 - **无法连接 Wi-Fi**：StickS3 只支持 2.4 GHz Wi-Fi。
 - **语音 API 检测失败**：检查 API 地址、Key、模型和当前网络。
 - **能转写但没有粘贴**：在“系统设置 → 隐私与安全性”中允许麦克风和辅助功能权限。
+- **微信面板没有出现**：先将微信输入法设为当前输入源，把光标留在目标输入框，并确认已安装 `BlackHole 2ch`；详见[微信语音输入说明](docs/WECHAT_INPUT.md)。
+- **S3 显示等待授权但 Codex 没弹窗**：确认 Mac 与固件都由同一个最新版安装器安装；自动审批不会触发等待授权状态或提示音。
 - **安装中断或失败**：保持数据线连接，重新打开安装器安装即可。
 
 ## 卸载 Mac 服务

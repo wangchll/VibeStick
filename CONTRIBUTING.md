@@ -10,9 +10,14 @@ pull requests are welcome.
 - `scripts/`, `docs/`
 
 ## Dev setup & checks
+
 Bridge (Python 3.11+):
+
+```sh
     python3 -m compileall -q bridge/src tests
     PYTHONPATH=bridge/src python3 -m unittest discover -s tests
+```
+
 Firmware: install ESP-IDF v5.5.x (see README), then `cd firmware/sticks3 && idf.py build`.
 CI runs the bridge checks on every push / PR.
 
@@ -22,6 +27,7 @@ CI runs the bridge checks on every push / PR.
   `vibe_stick_secrets.h`; don't log tokens or raw API responses.
 - Match the surrounding code style; add/update tests for behavior changes.
 - Don't change status icons / generated assets without discussion.
+- For every delivered update, increment all product versions, rebuild the self-contained installer, and verify its bundled and managed templates. Use the installer for final Mac installation and firmware flashing; see `AGENTS.md` and `app/macos/README.md`.
 
 ## Pull requests
 1. Fork and create a branch. 2. Make focused commits with clear messages.
