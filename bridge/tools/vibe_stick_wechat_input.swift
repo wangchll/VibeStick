@@ -186,12 +186,16 @@ func tapShortcut(keyCode: CGKeyCode, flags: CGEventFlags) throws {
     try postKey(keyCode: keyCode, flags: flags, keyDown: false)
 }
 
-func play(_ audioURL: URL, through deviceID: AudioDeviceID) throws {
+func play(_ audioURL: URL, through deviceID: AudioDeviceID, rate: Float) throws {
     let file = try AVAudioFile(forReading: audioURL)
     let engine = AVAudioEngine()
     let player = AVAudioPlayerNode()
+    let timePitch = AVAudioUnitTimePitch()
+    timePitch.rate = rate
     engine.attach(player)
-    engine.connect(player, to: engine.mainMixerNode, format: nil)
+    engine.attach(timePitch)
+    engine.connect(player, to: timePitch, format: file.processingFormat)
+    engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
 
     guard let audioUnit = engine.outputNode.audioUnit else {
         throw HelperError.message("CoreAudio output unit is unavailable")
@@ -219,7 +223,7 @@ func play(_ audioURL: URL, through deviceID: AudioDeviceID) throws {
     }
     try engine.start()
     player.play()
-    let duration = Double(file.length) / file.processingFormat.sampleRate
+    let duration = Double(file.length) / file.processingFormat.sampleRate / Double(rate)
     let timeout = DispatchTime.now() + duration + 5.0
     guard completed.wait(timeout: timeout) == .success else {
         player.stop()
@@ -274,6 +278,7 @@ do {
     let keyCode = CGKeyCode(keyCodeValue)
     let startDelay = max(0, min(2, Double(environment["VIBE_STICK_EXTERNAL_INPUT_START_DELAY"] ?? "0.35") ?? 0.35))
     let stopDelay = max(0, min(2, Double(environment["VIBE_STICK_EXTERNAL_INPUT_STOP_DELAY"] ?? "0.8") ?? 0.8))
+    let playbackRate = max(1, min(1.35, Float(environment["VIBE_STICK_EXTERNAL_INPUT_PLAYBACK_RATE"] ?? "1.15") ?? 1.15))
 
     let previousInput = try defaultInputDevice()
     try setDefaultInputDevice(device)
@@ -300,7 +305,7 @@ do {
         }
     }
     Thread.sleep(forTimeInterval: startDelay)
-    try play(URL(fileURLWithPath: audioPath), through: device)
+    try play(URL(fileURLWithPath: audioPath), through: device, rate: playbackRate)
     Thread.sleep(forTimeInterval: stopDelay)
     if shortcutMode == "fn-hold" {
         try postFnModifier(keyCode: keyCode, flags: flags, keyDown: false)
