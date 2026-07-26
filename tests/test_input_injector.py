@@ -46,28 +46,30 @@ class MacInputInjectorTests(unittest.TestCase):
 
     @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Darwin")
     @mock.patch("vibe_stick.paste.input_injector.subprocess.run")
-    def test_approval_clicks_accessibility_button_instead_of_sending_return(
+    def test_approval_targets_chatgpt_accessibility_process_and_sends_return(
         self, run: mock.Mock, _system: mock.Mock
     ) -> None:
-        run.return_value = subprocess.CompletedProcess([], 0, "VIBESTICK_CLICKED:Allow once\n", "")
+        run.return_value = subprocess.CompletedProcess([], 0, "", "")
 
         result = MacPasteInjector().approve_codex_task()
 
         self.assertTrue(result.success)
         args = run.call_args.args[0]
-        self.assertIn('            perform action "AXPress" of itemRef', args)
-        self.assertNotIn('tell application "System Events" to key code 36', args)
+        self.assertIn('  if not (exists process "ChatGPT") then error "Codex accessibility process is not running"', args)
+        self.assertIn('  tell process "ChatGPT" to key code 36', args)
 
     @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Darwin")
     @mock.patch("vibe_stick.paste.input_injector.subprocess.run")
-    def test_missing_permission_button_is_reported_as_failure(
+    def test_rejection_targets_chatgpt_accessibility_process_and_sends_escape(
         self, run: mock.Mock, _system: mock.Mock
     ) -> None:
-        run.return_value = subprocess.CompletedProcess([], 1, "", "No matching button")
+        run.return_value = subprocess.CompletedProcess([], 0, "", "")
 
         result = MacPasteInjector().cancel_codex_task()
 
-        self.assertFalse(result.success)
+        self.assertTrue(result.success)
+        args = run.call_args.args[0]
+        self.assertIn('  tell process "ChatGPT" to key code 53', args)
 
     @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Linux")
     @mock.patch("vibe_stick.paste.input_injector.subprocess.run")

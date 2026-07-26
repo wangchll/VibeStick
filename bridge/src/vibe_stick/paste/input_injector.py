@@ -50,52 +50,34 @@ class MacPasteInjector:
         )
 
     def approve_codex_task(self) -> PasteResult:
-        return self._press_codex_permission_button(
-            ["Allow once", "Allow", "Continue", "允许一次", "允许", "继续"],
-            success_message="Clicked the Codex approval button",
+        return self._send_codex_permission_key(
+            36,
+            success_message="Sent Return to the Codex permission prompt",
         )
 
     def cancel_codex_task(self) -> PasteResult:
-        return self._press_codex_permission_button(
-            ["Deny", "Don't allow", "Cancel", "拒绝", "不允许", "取消"],
-            success_message="Clicked the Codex rejection button",
+        return self._send_codex_permission_key(
+            53,
+            success_message="Sent Escape to the Codex permission prompt",
         )
 
-    def _press_codex_permission_button(
+    def _send_codex_permission_key(
         self,
-        labels: list[str],
+        key_code: int,
         *,
         success_message: str,
     ) -> PasteResult:
-        # Do not send Return/Escape blindly: when focus is in the composer those
-        # keys can submit or stop a task while leaving the permission prompt
-        # untouched. Accessibility lets us press only a real, labelled button.
-        apple_labels = "{" + ", ".join(f'\"{label}\"' for label in labels) + "}"
+        # The app bundle is com.openai.codex, but its Accessibility process is
+        # named "ChatGPT". Targeting the old process name "Codex" made every
+        # side-button action fail before a key was sent. Return accepts the
+        # focused permission prompt and Escape rejects it.
         script = [
             'tell application id "com.openai.codex" to activate',
             "delay 0.12",
-            f"set targetLabels to {apple_labels}",
             'tell application "System Events"',
-            '  if not (exists process "Codex") then error "Codex is not running"',
-            '  tell process "Codex"',
-            '    if not (exists front window) then error "Codex has no front window"',
-            '    repeat with itemRef in entire contents of front window',
-            '      try',
-            '        if role of itemRef is "AXButton" then',
-            '          set buttonLabel to ""',
-            '          try',
-            '            set buttonLabel to name of itemRef as text',
-            '          end try',
-            '          if buttonLabel is in targetLabels then',
-            '            perform action "AXPress" of itemRef',
-            '            return "VIBESTICK_CLICKED:" & buttonLabel',
-            '          end if',
-            '        end if',
-            '      end try',
-            '    end repeat',
-            '  end tell',
+            '  if not (exists process "ChatGPT") then error "Codex accessibility process is not running"',
+            f'  tell process "ChatGPT" to key code {key_code}',
             'end tell',
-            'error "No matching Codex permission button is visible"',
         ]
         return self._run_osascript(script, success_message=success_message)
 
