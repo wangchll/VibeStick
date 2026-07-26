@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from vibe_stick.audio.external_input import ExternalVoiceInputAdapter
 from vibe_stick.audio.transcriber import TranscriptionAdapter
 from vibe_stick.command_runner import run_json_command_hook
 from vibe_stick.config.paths import (
@@ -101,6 +102,7 @@ class RecordingController:
         self.path = path
         self._lock = threading.RLock()
         self.transcriber = TranscriptionAdapter()
+        self.external_input = ExternalVoiceInputAdapter()
         self.paste_injector = MacPasteInjector()
         self.audio_recorder = MacMicRecorder()
         self._active_lease_started = 0.0
@@ -448,6 +450,20 @@ class RecordingController:
                     show_hud("unclear", hold_seconds=1.8)
                     self._save_stop_result()
                     return self.session
+
+        if self.external_input.is_configured() and not explicit_text:
+            external = self.external_input.commit(self.session.to_jsonable())
+            self.session.transcript_source = external.source
+            self.session.transcript = ""
+            self.session.pasted = external.success
+            self.session.status = "pasted" if external.success else "transcription_failed"
+            self.session.message = external.message
+            if external.success:
+                hide_hud(delay_seconds=0.5)
+            else:
+                show_hud("failed", hold_seconds=1.8)
+            self._save_stop_result()
+            return self.session
 
         transcript = self.transcriber.transcribe(
             self.session.to_jsonable(),

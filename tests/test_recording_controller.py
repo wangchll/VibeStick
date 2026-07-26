@@ -411,6 +411,44 @@ class RecordingControllerTests(unittest.TestCase):
         self.assertIs(stopped, session)
         transcribe.assert_not_called()
 
+    def test_external_input_commits_without_bridge_transcript(self) -> None:
+        self.controller.start(self._request("aaaaaaaa"))
+        self.controller.attach_pcm(b"\x00\x00" * 160, session_id="aaaaaaaa")
+        metrics = recorder.AudioMetrics(
+            duration_seconds=1.0,
+            audio_bytes=32000,
+            rms=1200.0,
+            ac_rms=1200.0,
+            speech_seconds=0.5,
+            speech_windows=5,
+        )
+        committed = mock.Mock(
+            success=True,
+            message="微信输入完成",
+            source="external-input",
+        )
+        with mock.patch.object(recorder, "_wav_metrics", return_value=metrics), \
+             mock.patch.object(
+                 self.controller.external_input,
+                 "is_configured",
+                 return_value=True,
+             ), \
+             mock.patch.object(
+                 self.controller.external_input,
+                 "commit",
+                 return_value=committed,
+             ), \
+             mock.patch.object(self.controller.transcriber, "transcribe") as transcribe, \
+             mock.patch.object(self.controller.paste_injector, "paste") as paste:
+            session = self.controller.stop({"session_id": "aaaaaaaa"})
+
+        self.assertEqual(session.status, "pasted")
+        self.assertTrue(session.pasted)
+        self.assertEqual(session.transcript, "")
+        self.assertEqual(session.transcript_source, "external-input")
+        transcribe.assert_not_called()
+        paste.assert_not_called()
+
     def test_restart_during_paste_suppresses_ambiguous_replay(self) -> None:
         state_path = self.root / "recording.json"
         state_path.write_text(

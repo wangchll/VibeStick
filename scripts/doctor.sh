@@ -459,6 +459,8 @@ def read_dotenv(path):
     return data
 
 def env_has_asr(data):
+    if present(data.get("VIBE_STICK_EXTERNAL_INPUT_CMD")):
+        return True
     if present(data.get("VIBE_STICK_TRANSCRIBE_CMD")):
         return True
     provider = clean(data.get("VIBE_STICK_ASR_PROVIDER")).lower()
