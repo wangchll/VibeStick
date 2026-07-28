@@ -22,7 +22,7 @@ from vibe_stick.audio.recorder import (
     RecordingRequestError,
 )
 from vibe_stick.codex.quota import QuotaSnapshot, load_quota, save_quota
-from vibe_stick.config.paths import QUOTA_PATH, RECORDING_PATH, STATE_PATH, ensure_app_support
+from vibe_stick.config.paths import POWER_TELEMETRY_PATH, QUOTA_PATH, RECORDING_PATH, STATE_PATH, ensure_app_support
 from vibe_stick.config.storage import atomic_write_text
 from vibe_stick.desktop.hud import hide_hud
 from vibe_stick.paste.input_injector import MacPasteInjector, PasteResult
@@ -40,6 +40,7 @@ from vibe_stick.protocol.state import (
 )
 from vibe_stick.providers.base import ProviderAlert, ProviderObservation
 from vibe_stick.providers.codex import observe_codex
+from vibe_stick.telemetry.power import PowerTelemetryStore
 
 MANUAL_STATUS_SECONDS = 60
 BRIDGE_NAME = "vibestick-bridge"
@@ -174,6 +175,7 @@ class BridgeStateStore:
         self._state.codex.quota_window_minutes = quota.quota_window_minutes
         self._state.codex.quota_resets_at = quota.quota_resets_at
         self.recording = RecordingController(RECORDING_PATH)
+        self.telemetry = PowerTelemetryStore(POWER_TELEMETRY_PATH)
         self.input_injector = MacPasteInjector()
         hide_hud()
 
@@ -187,7 +189,8 @@ class BridgeStateStore:
     def set_screen_idle_seconds(self, seconds: int) -> int:
         """Persist the screen idle timeout (seconds); firmware picks it up on its next /state poll."""
         with self._lock:
-            clamped = max(5, min(3600, int(seconds)))
+            requested = int(seconds)
+            clamped = 0 if requested == 0 else max(5, min(3600, requested))
             self._state.screen_idle_off_ms = clamped
             self._save_state_locked()
             return clamped
@@ -562,6 +565,15 @@ def make_handler(
                     }
                     health.update(presence.health_metadata())
                     self._send_json(health)
+                elif parsed.path == "/telemetry/power/latest":
+                    telemetry = getattr(store, "telemetry", None)
+                    self._send_json({"sample": telemetry.latest() if telemetry else None})
+                elif parsed.path == "/telemetry/power.csv":
+                    telemetry = getattr(store, "telemetry", None)
+                    self._send_bytes(
+                        telemetry.csv_bytes() if telemetry else b"",
+                        "text/csv; charset=utf-8",
+                    )
                 else:
                     self._send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
             except Exception as exc:
@@ -615,6 +627,19 @@ def make_handler(
                     body = self._read_json_body()
                     applied = store.set_screen_idle_seconds(int(body.get("seconds", 60)))
                     self._send_json({"ok": True, "screen_idle_off_ms": applied})
+                elif parsed.path == "/telemetry/power":
+                    body = self._read_json_body()
+                    telemetry = getattr(store, "telemetry", None)
+                    if telemetry is None:
+                        raise RuntimeError("Power telemetry is unavailable")
+                    firmware = self._authenticated_firmware_metadata()
+                    if firmware is None:
+                        raise RequestBodyError(
+                            HTTPStatus.UNPROCESSABLE_ENTITY,
+                            "Authenticated VibeStick firmware metadata is required",
+                        )
+                    sample = telemetry.record(body, firmware.get("version", ""))
+                    self._send_json({"ok": True, "sample": sample})
                 else:
                     self._send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
             except RequestBodyError as exc:
@@ -718,6 +743,13 @@ def make_handler(
             self.end_headers()
             self.wfile.write(data)
 
+        def _send_bytes(self, data: bytes, content_type: str) -> None:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def _send_error(self, status: HTTPStatus, message: str) -> None:
             self._send_json({"error": message}, status=status)
 
@@ -757,6 +789,9 @@ def _protected_paths() -> set[str]:
         "/recording/start",
         "/recording/audio",
         "/recording/stop",
+        "/telemetry/power",
+        "/telemetry/power/latest",
+        "/telemetry/power.csv",
     }
 
 

@@ -13,6 +13,7 @@ QUOTA_PATH = APP_SUPPORT_DIR / "quota.json"
 RECORDING_PATH = APP_SUPPORT_DIR / "recording.json"
 HUD_STATE_PATH = APP_SUPPORT_DIR / "hud-state.json"
 RECORDINGS_DIR = APP_SUPPORT_DIR / "Recordings"
+POWER_TELEMETRY_PATH = APP_SUPPORT_DIR / "Telemetry" / "power.jsonl"
 # Both helpers are built as proper .app bundles. macOS TCC only honors the
 # privacy usage-description keys (NSSpeechRecognitionUsageDescription,
 # NSMicrophoneUsageDescription) when they live in a real bundle's

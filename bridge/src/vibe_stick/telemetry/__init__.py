@@ -1,0 +1,1 @@
+"""Local power telemetry collection."""

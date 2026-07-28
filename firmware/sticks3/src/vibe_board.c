@@ -188,6 +188,17 @@ esp_err_t vibe_board_battery_level(int *level_percent)
     return ESP_OK;
 }
 
+esp_err_t vibe_board_battery_voltage_mv(int *voltage_mv)
+{
+    ESP_RETURN_ON_FALSE(voltage_mv != NULL, ESP_ERR_INVALID_ARG, TAG, "null voltage");
+    ESP_RETURN_ON_FALSE(s_pmic_dev != NULL, ESP_ERR_INVALID_STATE, TAG, "pmic missing");
+
+    uint8_t data[2] = {0};
+    ESP_RETURN_ON_ERROR(read_regs(M5PM1_REG_BAT_L, data, sizeof(data)), TAG, "read bat");
+    *voltage_mv = (data[1] << 8) | data[0];
+    return ESP_OK;
+}
+
 esp_err_t vibe_board_battery_charging(bool *charging)
 {
     ESP_RETURN_ON_FALSE(charging != NULL, ESP_ERR_INVALID_ARG, TAG, "null charging");
@@ -235,5 +246,16 @@ esp_err_t vibe_board_speaker_set_enabled(bool enabled)
                                    enabled ? M5PM1_GPIO3_SPK_PULSE : 0),
                         TAG, "speaker gpio out");
     ESP_LOGI(TAG, "speaker amp %s", enabled ? "enabled" : "disabled");
+    return ESP_OK;
+}
+
+esp_err_t vibe_board_prepare_deep_sleep(void)
+{
+    ESP_RETURN_ON_FALSE(s_pmic_dev != NULL, ESP_ERR_INVALID_STATE, TAG, "pmic missing");
+    ESP_RETURN_ON_ERROR(vibe_board_speaker_set_enabled(false), TAG, "disable speaker");
+    ESP_RETURN_ON_ERROR(update_reg(M5PM1_REG_GPIO_OUT,
+                                   M5PM1_GPIO2_L3B_POWER_EN, 0),
+                        TAG, "disable L3B peripherals");
+    ESP_LOGI(TAG, "deep sleep power rails off: L3B");
     return ESP_OK;
 }

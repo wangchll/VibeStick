@@ -224,14 +224,14 @@ def _percent_or_none(value: object) -> int | None:
 
 
 def _clamp_seconds(value: object) -> int:
-    """Screen idle timeout in seconds, clamped to a sane range [5, 3600]."""
+    """Screen idle timeout: 0 means never; otherwise clamp to [5, 3600]."""
     if value is None or isinstance(value, bool):
         return 60
     try:
         number = int(value)
     except (OverflowError, TypeError, ValueError):
         return 60
-    return max(5, min(3600, number))
+    return 0 if number == 0 else max(5, min(3600, number))
 
 
 def _positive_int_or_none(value: object) -> int | None:

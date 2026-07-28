@@ -5,8 +5,8 @@ MODE="${1:-run}"
 APP_NAME="VibeStickSetup"
 BUNDLE_ID="com.vibestick.setup"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${VIBE_STICK_APP_VERSION:-0.2.12}"
-APP_BUILD_VERSION="${VIBE_STICK_APP_BUILD_VERSION:-8}"
+APP_VERSION="${VIBE_STICK_APP_VERSION:-0.2.19}"
+APP_BUILD_VERSION="${VIBE_STICK_APP_BUILD_VERSION:-15}"
 
 if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VIBE_STICK_APP_VERSION must use semantic version format, for example 0.1.7." >&2

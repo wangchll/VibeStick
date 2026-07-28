@@ -5,6 +5,11 @@ from vibe_stick.protocol.state import AgentStatus, default_state, state_from_dic
 
 
 class ProtocolStateTests(unittest.TestCase):
+    def test_zero_screen_idle_timeout_means_never(self) -> None:
+        state = state_from_dict({"screen_idle_off_ms": 0})
+        self.assertEqual(state.screen_idle_off_ms, 0)
+        self.assertEqual(state.to_jsonable()["screen_idle_off_ms"], 0)
+
     def test_bridge_state_never_serializes_remote_battery(self) -> None:
         state = state_from_dict(
             {

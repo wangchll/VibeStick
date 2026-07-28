@@ -1,13 +1,16 @@
 import http.client
 import json
 import os
+import tempfile
 import threading
 import unittest
 from contextlib import contextmanager
+from pathlib import Path
 from unittest import mock
 
 from vibe_stick.protocol.state import default_state
 from vibe_stick.server import app
+from vibe_stick.telemetry.power import PowerTelemetryStore
 
 
 class _TestStore:
@@ -42,6 +45,59 @@ def _running_server(store: _TestStore):
 
 
 class ServerSecurityTests(unittest.TestCase):
+    def test_power_telemetry_requires_authenticated_firmware_identity(self) -> None:
+        store = _TestStore()
+        token = "t" * 40
+        sample = {
+            "uptime_ms": 1234,
+            "battery_mv": 3890,
+            "battery_percent": 72,
+            "charging": False,
+            "usb_powered": False,
+            "wifi_rssi": -48,
+        }
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            store.telemetry = PowerTelemetryStore(
+                Path(temporary_directory) / "power.jsonl"
+            )
+            with mock.patch.dict(
+                os.environ,
+                {"VIBE_STICK_BRIDGE_TOKEN": token},
+                clear=True,
+            ), _running_server(store) as port:
+                connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+                headers = {
+                    "Content-Type": "application/json",
+                    "X-Vibe-Stick-Token": token,
+                }
+                connection.request(
+                    "POST",
+                    "/telemetry/power",
+                    body=json.dumps(sample),
+                    headers=headers,
+                )
+                missing_identity = connection.getresponse()
+                self.assertEqual(missing_identity.status, 422)
+                missing_identity.read()
+
+                connection.request(
+                    "POST",
+                    "/telemetry/power",
+                    body=json.dumps(sample),
+                    headers={
+                        **headers,
+                        "X-Vibe-Stick-Firmware-Name": "vibestick",
+                        "X-Vibe-Stick-Firmware-Version": "0.2.19",
+                    },
+                )
+                accepted = connection.getresponse()
+                payload = json.loads(accepted.read())
+                connection.close()
+
+            self.assertEqual(accepted.status, 200)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["sample"]["firmware_version"], "0.2.19")
+
     def test_loopback_host_does_not_require_token(self) -> None:
         self.assertFalse(app._host_requires_token("127.0.0.1"))
         self.assertFalse(app._host_requires_token("localhost"))

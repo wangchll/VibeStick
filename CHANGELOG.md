@@ -1,5 +1,47 @@
 # Changelog
 
+## v0.2.19
+
+- Generate an isolated ESP-IDF sdkconfig from committed defaults so stale local configuration cannot silently disable power management.
+- Cancel deep sleep unless wake-source and Wi-Fi shutdown preparation succeed, and restart safely if the PMIC power-down sequence fails.
+- Require authenticated VibeStick firmware identity before accepting power telemetry.
+
+## v0.2.18
+
+- Enable ESP-IDF dynamic frequency scaling from 240 MHz down to the 40 MHz crystal frequency.
+- Enable tickless idle and automatic light sleep after the display is fully off.
+- Hold a no-light-sleep lock while the LCD is active and reacquire it before waking the panel.
+
+## v0.2.17
+
+- Discover the installer-managed ESP-IDF 5.5.1 checkout automatically in `scripts/run-idf.sh`.
+- Verify the power telemetry and front-button deep-sleep firmware with a complete ESP-IDF build.
+
+## v0.2.16
+
+- Enter deep sleep after five minutes of battery-powered inactivity once the display is off.
+- Block deep sleep during USB power, charging, recording, retained recording work, or a held wake button.
+- Stop Wi-Fi, disable the speaker and L3B peripheral rail, and wake through the front button.
+- Log the ESP32-S3 wake cause during the subsequent boot.
+
+## v0.2.15
+
+- Record one authenticated StickS3 power sample per minute outside active recording.
+- Persist bounded power telemetry as a rotating JSONL journal and expose latest-sample and CSV export endpoints.
+- Include raw battery voltage, displayed percentage, charge/USB state, RSSI, uptime, firmware version, and Bridge receive time.
+
+## v0.2.14
+
+- Derive the dim timeout from the selected screen-off timeout: half the selected duration, capped at 30 seconds.
+- Add an end-to-end `Never` screen-off option that disables both dimming and display shutdown.
+
+## v0.2.13
+
+- Add staged display power saving: dim after 30 seconds and suspend the LCD/LVGL tick after the configured idle timeout.
+- Enable Wi-Fi minimum-modem power saving while idle and restore full Wi-Fi performance during recording.
+- Stabilize the displayed battery percentage with a five-sample median filter.
+- Add host-side tests for the display power policy.
+
 ## v0.2.12
 
 - Keep three selectable voice-input modes in the macOS menu bar: cloud API, fully local Whisper, and WeChat Input.

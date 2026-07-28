@@ -6,12 +6,14 @@
 
 #include "vibe_audio.h"
 #include "vibe_board.h"
+#include "vibe_power_policy.h"
 #include "vibe_roxy_assets.h"
 #include "vibe_stick_config.h"
 #include "button_gpio.h"
 #include "cJSON.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
+#include "driver/rtc_io.h"
 #include "driver/spi_master.h"
 #include "esp_check.h"
 #include "esp_event.h"
@@ -22,7 +24,9 @@
 #include "esp_lcd_panel_st7789.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_pm.h"
 #include "esp_random.h"
+#include "esp_sleep.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -43,9 +47,11 @@
 #define LCD_BACKLIGHT_PWM_HZ 5000
 #define LCD_BACKLIGHT_PWM_MAX 255
 #define LCD_BACKLIGHT_DEFAULT 150
+#define LCD_BACKLIGHT_IDLE 45
 
 // Auto power-save: the screen turns off after this many ms with no button
 // activity. Any button press wakes it again. Lower = more saving.
+#define SCREEN_IDLE_DIM_MS_DEFAULT (30 * 1000)
 #define SCREEN_IDLE_OFF_MS_DEFAULT (60 * 1000)
 static int64_t s_screen_idle_off_ms = SCREEN_IDLE_OFF_MS_DEFAULT;
 #define LVGL_DRAW_BUF_LINES 24
@@ -54,6 +60,9 @@ static int64_t s_screen_idle_off_ms = SCREEN_IDLE_OFF_MS_DEFAULT;
 #define BATTERY_FILL_CHARGING_MAX_WIDTH 28
 #define BATTERY_FILL_NORMAL_MAX_WIDTH 26
 #define POWER_STATE_POLL_MS 2000
+#define POWER_TELEMETRY_INTERVAL_MS 60000
+#define DEEP_SLEEP_AFTER_MS (5 * 60 * 1000)
+#define BATTERY_SAMPLE_COUNT 5
 #define ALERT_SOUND_PENDING_CAPACITY 32
 #define HTTP_JSON_RESPONSE_CAPACITY 2048
 #define POST_RECORDING_ACTION_WINDOW_MS 30000
@@ -153,7 +162,15 @@ static uint16_t *s_pet_framebuffer;
 static lv_display_t *s_display;
 static esp_lcd_panel_handle_t s_display_panel;
 static volatile bool s_screen_asleep = false;
+static vibe_power_display_state_t s_display_power_state = VIBE_POWER_DISPLAY_ACTIVE;
 static int64_t s_last_activity_ms = 0;
+static esp_timer_handle_t s_lvgl_tick_timer;
+static bool s_lvgl_tick_running;
+static int s_battery_samples[BATTERY_SAMPLE_COUNT];
+static size_t s_battery_sample_count;
+static size_t s_battery_sample_index;
+static esp_pm_lock_handle_t s_display_pm_lock;
+static bool s_display_pm_lock_held;
 static lv_obj_t *s_dashboard_view;
 static lv_obj_t *s_pet_view;
 static lv_obj_t *s_pet_canvas;
@@ -313,12 +330,52 @@ static void set_backlight(uint8_t brightness)
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 }
 
+static void set_display_pm_lock(bool held)
+{
+    if (!s_display_pm_lock || held == s_display_pm_lock_held) {
+        return;
+    }
+    esp_err_t err = held ? esp_pm_lock_acquire(s_display_pm_lock)
+                         : esp_pm_lock_release(s_display_pm_lock);
+    if (err == ESP_OK) {
+        s_display_pm_lock_held = held;
+        ESP_LOGI(TAG, "display power lock %s", held ? "acquired" : "released");
+    } else {
+        ESP_LOGW(TAG, "display power lock change failed: %s", esp_err_to_name(err));
+    }
+}
+
+static esp_err_t init_power_management(void)
+{
+    const esp_pm_config_t config = {
+        .max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        .min_freq_mhz = CONFIG_XTAL_FREQ,
+        .light_sleep_enable = true,
+    };
+    ESP_RETURN_ON_ERROR(esp_pm_configure(&config), TAG, "power management");
+    ESP_RETURN_ON_ERROR(
+        esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "display_active",
+                           &s_display_pm_lock),
+        TAG, "display power lock");
+    ESP_RETURN_ON_ERROR(esp_pm_lock_acquire(s_display_pm_lock),
+                        TAG, "acquire display power lock");
+    s_display_pm_lock_held = true;
+    ESP_LOGI(TAG, "power management max=%dMHz min=%dMHz light_sleep=1",
+             config.max_freq_mhz, config.min_freq_mhz);
+    return ESP_OK;
+}
+
 // --- Power-saving: auto screen-off after idle ---
 // Turn the display back on and repaint the current UI. Safe to call even when
 // already awake (it early-returns).
 static void screen_wake(void)
 {
+    set_display_pm_lock(true);
     if (!s_screen_asleep) {
+        if (s_display_power_state == VIBE_POWER_DISPLAY_DIMMED) {
+            set_backlight(LCD_BACKLIGHT_DEFAULT);
+            s_display_power_state = VIBE_POWER_DISPLAY_ACTIVE;
+        }
         return;
     }
     // Turn the panel back on. Keep s_screen_asleep true through the repaint so
@@ -327,9 +384,15 @@ static void screen_wake(void)
     // here (the old code did, and a non-recursive mutex self-deadlocks app_task
     // on every wake, freezing the whole device and preventing re-sleep).
     esp_lcd_panel_disp_on_off(s_display_panel, true);
+    if (s_lvgl_tick_timer && !s_lvgl_tick_running) {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(
+            esp_timer_start_periodic(s_lvgl_tick_timer, LVGL_TICK_PERIOD_MS * 1000));
+        s_lvgl_tick_running = true;
+    }
     set_backlight(LCD_BACKLIGHT_DEFAULT);
-    render_state();
     s_screen_asleep = false;
+    s_display_power_state = VIBE_POWER_DISPLAY_ACTIVE;
+    render_state();
     ESP_LOGI(TAG, "screen wake (backlight on)");
 }
 
@@ -349,9 +412,90 @@ static void screen_sleep(void)
     lvgl_lock();
     set_backlight(0);
     esp_lcd_panel_disp_on_off(s_display_panel, false);
+    if (s_lvgl_tick_timer && s_lvgl_tick_running) {
+        ESP_ERROR_CHECK_WITHOUT_ABORT(esp_timer_stop(s_lvgl_tick_timer));
+        s_lvgl_tick_running = false;
+    }
     s_screen_asleep = true;
+    s_display_power_state = VIBE_POWER_DISPLAY_OFF;
     lvgl_unlock();
+    set_display_pm_lock(false);
     ESP_LOGI(TAG, "screen sleep (backlight off)");
+}
+
+static void update_display_power(int64_t now_ms)
+{
+    const bool active_work = s_recording_overlay_visible || vibe_audio_is_recording();
+    const int64_t dim_after_ms = vibe_power_dim_after_ms(
+        s_screen_idle_off_ms, SCREEN_IDLE_DIM_MS_DEFAULT);
+    vibe_power_display_state_t next = vibe_power_display_state(
+        active_work, now_ms, s_last_activity_ms,
+        dim_after_ms, s_screen_idle_off_ms);
+    if (next == VIBE_POWER_DISPLAY_ACTIVE) {
+        if (s_display_power_state != VIBE_POWER_DISPLAY_ACTIVE) {
+            screen_wake();
+        }
+    } else if (next == VIBE_POWER_DISPLAY_DIMMED) {
+        if (!s_screen_asleep && s_display_power_state != VIBE_POWER_DISPLAY_DIMMED) {
+            set_backlight(LCD_BACKLIGHT_IDLE);
+            s_display_power_state = VIBE_POWER_DISPLAY_DIMMED;
+            ESP_LOGI(TAG, "screen dim");
+        }
+    } else {
+        screen_sleep();
+    }
+}
+
+static void maybe_enter_deep_sleep(int64_t now_ms)
+{
+    const bool active_work = s_recording_overlay_visible ||
+                             vibe_audio_is_recording() ||
+                             atomic_load(&s_long_press_active) ||
+                             s_recording_session_id[0] != '\0';
+    if (!vibe_power_should_deep_sleep(
+            active_work,
+            s_state.battery_charging || s_state.usb_powered,
+            s_screen_asleep,
+            now_ms,
+            s_last_activity_ms,
+            DEEP_SLEEP_AFTER_MS)) {
+        return;
+    }
+    if (gpio_get_level(PIN_BUTTON_FRONT) == 0) {
+        ESP_LOGW(TAG, "deep sleep postponed: front button is held");
+        return;
+    }
+
+    ESP_LOGI(TAG, "entering deep sleep; wake source=front button gpio%d",
+             PIN_BUTTON_FRONT);
+    esp_err_t err = rtc_gpio_pullup_en(PIN_BUTTON_FRONT);
+    if (err == ESP_OK) {
+        err = rtc_gpio_pulldown_dis(PIN_BUTTON_FRONT);
+    }
+    if (err == ESP_OK) {
+        err = esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    }
+    if (err == ESP_OK) {
+        err = esp_sleep_enable_ext0_wakeup(PIN_BUTTON_FRONT, 0);
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "deep sleep cancelled: wake setup failed: %s",
+                 esp_err_to_name(err));
+        return;
+    }
+    err = esp_wifi_stop();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "deep sleep cancelled: Wi-Fi stop failed: %s",
+                 esp_err_to_name(err));
+        return;
+    }
+    err = vibe_board_prepare_deep_sleep();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "deep sleep power preparation failed; restarting: %s",
+                 esp_err_to_name(err));
+        esp_restart();
+    }
+    esp_deep_sleep_start();
 }
 
 static void init_backlight(void)
@@ -438,9 +582,9 @@ static esp_err_t init_display(void)
         .callback = lvgl_tick_cb,
         .name = "lvgl_tick",
     };
-    esp_timer_handle_t tick_timer = NULL;
-    ESP_RETURN_ON_ERROR(esp_timer_create(&tick_args, &tick_timer), TAG, "tick timer");
-    ESP_RETURN_ON_ERROR(esp_timer_start_periodic(tick_timer, LVGL_TICK_PERIOD_MS * 1000), TAG, "tick start");
+    ESP_RETURN_ON_ERROR(esp_timer_create(&tick_args, &s_lvgl_tick_timer), TAG, "tick timer");
+    ESP_RETURN_ON_ERROR(esp_timer_start_periodic(s_lvgl_tick_timer, LVGL_TICK_PERIOD_MS * 1000), TAG, "tick start");
+    s_lvgl_tick_running = true;
 
     BaseType_t task_created = xTaskCreate(lvgl_task, "lvgl", LVGL_TASK_STACK_SIZE,
                                           NULL, 3, NULL);
@@ -1197,6 +1341,7 @@ static void maybe_handle_alert(void)
 static void finish_recording_overlay(void)
 {
     show_recording_overlay(NULL, NULL, false);
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
     play_pending_alert_sounds();
 }
 
@@ -1510,9 +1655,13 @@ static bool parse_state_json(const char *json)
     cJSON *idle = cJSON_GetObjectItemCaseSensitive(state_root, "screen_idle_off_ms");
     if (cJSON_IsNumber(idle)) {
         int secs = idle->valueint;
-        if (secs >= 5 && secs <= 3600) {
+        if (secs == 0 || (secs >= 5 && secs <= 3600)) {
             s_screen_idle_off_ms = (int64_t)secs * 1000;
-            ESP_LOGI(TAG, "screen idle off set to %d s", secs);
+            if (secs == 0) {
+                ESP_LOGI(TAG, "screen idle off disabled");
+            } else {
+                ESP_LOGI(TAG, "screen idle off set to %d s", secs);
+            }
         }
     }
     cJSON_Delete(root);
@@ -1527,7 +1676,30 @@ static bool refresh_power_state(void)
     const bool previous_usb_powered = s_state.usb_powered;
     int battery_level = 0;
     if (vibe_board_battery_level(&battery_level) == ESP_OK) {
-        s_state.battery = battery_level;
+        if (battery_level < 0) {
+            battery_level = 0;
+        } else if (battery_level > 100) {
+            battery_level = 100;
+        }
+        s_battery_samples[s_battery_sample_index] = battery_level;
+        s_battery_sample_index = (s_battery_sample_index + 1) % BATTERY_SAMPLE_COUNT;
+        if (s_battery_sample_count < BATTERY_SAMPLE_COUNT) {
+            s_battery_sample_count++;
+        }
+        int sorted[BATTERY_SAMPLE_COUNT];
+        for (size_t i = 0; i < s_battery_sample_count; ++i) {
+            sorted[i] = s_battery_samples[i];
+        }
+        for (size_t i = 1; i < s_battery_sample_count; ++i) {
+            int value = sorted[i];
+            size_t j = i;
+            while (j > 0 && sorted[j - 1] > value) {
+                sorted[j] = sorted[j - 1];
+                j--;
+            }
+            sorted[j] = value;
+        }
+        s_state.battery = sorted[s_battery_sample_count / 2];
         s_state.battery_valid = true;
     }
     bool charging = false;
@@ -1558,6 +1730,32 @@ static bool refresh_power_state(void)
            previous_battery_valid != s_state.battery_valid ||
            previous_charging != s_state.battery_charging ||
            previous_usb_powered != s_state.usb_powered;
+}
+
+static void post_power_telemetry(void)
+{
+    int battery_mv = 0;
+    if (vibe_board_battery_voltage_mv(&battery_mv) != ESP_OK) {
+        return;
+    }
+    int wifi_rssi = -127;
+    wifi_ap_record_t access_point = {0};
+    if (s_wifi_connected && esp_wifi_sta_get_ap_info(&access_point) == ESP_OK) {
+        wifi_rssi = access_point.rssi;
+    }
+    char body[256];
+    snprintf(body, sizeof(body),
+             "{\"uptime_ms\":%lld,\"battery_mv\":%d,\"battery_percent\":%d,"
+             "\"charging\":%s,\"usb_powered\":%s,\"wifi_rssi\":%d}",
+             (long long)(esp_timer_get_time() / 1000), battery_mv, s_state.battery,
+             s_state.battery_charging ? "true" : "false",
+             s_state.usb_powered ? "true" : "false", wifi_rssi);
+    char response[512] = {0};
+    esp_err_t err = http_request("POST", "/telemetry/power", body,
+                                 response, sizeof(response));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "power telemetry failed: %s", esp_err_to_name(err));
+    }
 }
 
 static void poll_state(void)
@@ -1788,11 +1986,13 @@ static void handle_recording_start(void)
         return;
     }
 
+    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_ps(WIFI_PS_NONE));
     esp_err_t audio_err = vibe_audio_start();
     if (audio_err != ESP_OK) {
         ESP_LOGW(TAG, "hardware recording start failed: %s", esp_err_to_name(audio_err));
         s_recording_session_id[0] = '\0';
         s_recording_audio_uploaded = false;
+        ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
         return;
     }
     show_recording_overlay("正在聆听", "松开识别", true);
@@ -2018,6 +2218,7 @@ static esp_err_t init_wifi(void)
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "wifi mode");
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_STA, &wifi_config), TAG, "wifi config");
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "wifi start");
+    ESP_RETURN_ON_ERROR(esp_wifi_set_ps(WIFI_PS_MIN_MODEM), TAG, "wifi power save");
     return ESP_OK;
 }
 
@@ -2158,6 +2359,7 @@ static void app_task(void *arg)
     agent_event_t event;
     int64_t last_poll = 0;
     int64_t last_power_poll = 0;
+    int64_t last_power_telemetry = 0;
     while (true) {
         if (process_pending_long_start()) {
             continue;
@@ -2185,14 +2387,17 @@ static void app_task(void *arg)
             last_poll = now_ms;
             poll_state();
         }
+        if (s_wifi_connected && !vibe_audio_is_recording() &&
+            now_ms - last_power_telemetry >= POWER_TELEMETRY_INTERVAL_MS) {
+            last_power_telemetry = now_ms;
+            post_power_telemetry();
+        }
         // Auto power-save: sleep the screen after a period of no button activity.
         if (s_last_activity_ms == 0) {
             s_last_activity_ms = now_ms;
         }
-        if (!s_screen_asleep && !s_recording_overlay_visible && !vibe_audio_is_recording() &&
-            (now_ms - s_last_activity_ms >= s_screen_idle_off_ms)) {
-            screen_sleep();
-        }
+        update_display_power(now_ms);
+        maybe_enter_deep_sleep(now_ms);
         if (xQueueReceive(s_event_queue, &event, pdMS_TO_TICKS(100)) != pdTRUE) {
             continue;
         }
@@ -2259,6 +2464,11 @@ static void app_task(void *arg)
 
 void app_main(void)
 {
+    esp_sleep_wakeup_cause_t wake_cause = esp_sleep_get_wakeup_cause();
+    if (wake_cause != ESP_SLEEP_WAKEUP_UNDEFINED) {
+        ESP_LOGI(TAG, "woke from deep sleep cause=%d", (int)wake_cause);
+        ESP_ERROR_CHECK_WITHOUT_ABORT(rtc_gpio_deinit(PIN_BUTTON_FRONT));
+    }
     ESP_LOGI(TAG, "boot %s version=%s build=%s %s transport=%s",
              FIRMWARE_NAME, FIRMWARE_VERSION, __DATE__, __TIME__, TRANSPORT);
     esp_err_t nvs = nvs_flash_init();
@@ -2270,6 +2480,7 @@ void app_main(void)
     }
 
     ESP_ERROR_CHECK_WITHOUT_ABORT(vibe_board_init_power());
+    ESP_ERROR_CHECK(init_power_management());
     s_event_queue = xQueueCreate(10, sizeof(agent_event_t));
     ESP_ERROR_CHECK(s_event_queue ? ESP_OK : ESP_ERR_NO_MEM);
     s_lvgl_lock = xSemaphoreCreateRecursiveMutex();

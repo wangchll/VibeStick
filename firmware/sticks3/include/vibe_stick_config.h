@@ -2,7 +2,7 @@
 
 #define VIBE_STICK_DEVICE_NAME "VibeStick"
 #define FIRMWARE_NAME "vibestick"
-#define VIBE_STICK_VERSION "0.2.12"
+#define VIBE_STICK_VERSION "0.2.19"
 #define FIRMWARE_VERSION VIBE_STICK_VERSION
 #define TRANSPORT "HTTP"
 #define VIBE_STICK_STATE_PATH "/state"

@@ -1,6 +1,6 @@
 # States And Sounds
 
-VibeStick v0.2.12 plays sounds only for key agent status changes on the home screen. Recording states and WeChat virtual-audio streaming do not play sounds.
+VibeStick v0.2.19 plays sounds only for key agent status changes on the home screen. Recording states and WeChat virtual-audio streaming do not play sounds.
 
 | State | Trigger | Sound |
 | --- | --- | --- |

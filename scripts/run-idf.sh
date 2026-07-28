@@ -11,6 +11,8 @@ if [ "${1:-}" = "--export" ]; then
   shift 2
 elif [ -n "${IDF_PATH:-}" ] && [ -f "$IDF_PATH/export.sh" ]; then
   IDF_EXPORT="$IDF_PATH/export.sh"
+elif [ -f "$HOME/esp/vibestick-esp-idf-v5.5.1/export.sh" ]; then
+  IDF_EXPORT="$HOME/esp/vibestick-esp-idf-v5.5.1/export.sh"
 elif [ -f "$HOME/esp/esp-idf/export.sh" ]; then
   IDF_EXPORT="$HOME/esp/esp-idf/export.sh"
 fi
@@ -56,4 +58,12 @@ for _vs_venv in "$HOME/.espressif/python_env"/idf5.5*/bin "$HOME/.espressif/pyth
 done
 
 . "$IDF_EXPORT" >/dev/null
+
+# Never trust a developer machine's stale, untracked sdkconfig. VibeStick's
+# committed defaults are the deployment contract; generate an isolated config
+# inside the build directory so newly required options are always applied.
+if [ -f "$PWD/CMakeLists.txt" ] && [ -f "$PWD/sdkconfig.defaults" ]; then
+  mkdir -p "$PWD/build"
+  exec idf.py -D "SDKCONFIG=$PWD/build/vibestick-sdkconfig" "$@"
+fi
 exec idf.py "$@"
