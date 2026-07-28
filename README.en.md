@@ -19,7 +19,7 @@ You need:
 - A 2.4 GHz Wi-Fi name and password.
 - An optional ASR API key. [SiliconFlow](https://cloud.siliconflow.cn) is recommended; other OpenAI-compatible services are supported.
 
-The current source version is **v0.2.19**. The previously published package remains available from the [v0.1.7 release](https://github.com/deanxizian/VibeStick/releases/tag/v0.1.7). Build the current source when you need WeChat Input streaming, offline Whisper, and approval controls. The installer supports Apple Silicon and Intel but is not Apple-notarized yet; if macOS blocks the first launch, right-click the app and choose Open.
+The current source version is **v0.2.20**. The previously published package remains available from the [v0.1.7 release](https://github.com/deanxizian/VibeStick/releases/tag/v0.1.7). Build the current source when you need WeChat Input streaming, offline Whisper, and approval controls. The installer supports Apple Silicon and Intel but is not Apple-notarized yet; if macOS blocks the first launch, right-click the app and choose Open.
 
 You can also build it from source:
 

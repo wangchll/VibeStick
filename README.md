@@ -4,6 +4,8 @@
 
 ![VibeStick 语音输入流程，显示 StickS3 录音状态和 Mac HUD](assets/brand/voice-input-preview.png)
 
+![VibeStick 一图上手：安装、语音识别模式、微信输入法与 StickS3 按键说明](assets/brand/vibestick-quick-start.png)
+
 VibeStick 把 M5Stack StickS3 变成一个 Codex 桌面终端：显示任务状态、运行中对话数量、当前用量窗口与重置倒计时，并支持语音转写到 Mac。
 
 本项目面向 M5Stack StickS3，不是 M5Stack 官方项目。
@@ -19,7 +21,7 @@ VibeStick 把 M5Stack StickS3 变成一个 Codex 桌面终端：显示任务状�
 - 2.4 GHz Wi-Fi 名称和密码。
 - 可选的语音转写 API Key；推荐 [SiliconFlow](https://cloud.siliconflow.cn)，也支持其他 OpenAI 兼容服务。
 
-最新源码版本为 **v0.2.19**。已公开发布的安装包仍可从 [v0.1.7 Release](https://github.com/deanxizian/VibeStick/releases/tag/v0.1.7) 下载；需要微信语音输入、离线 Whisper 和右键审批控制时，请从当前源码构建最新版安装器。安装器支持 Apple Silicon 和 Intel；尚未经过 Apple 公证，若首次打开被 macOS 阻止，请右键 App 后选择“打开”。
+最新源码版本为 **v0.2.20**。已公开发布的安装包仍可从 [v0.1.7 Release](https://github.com/deanxizian/VibeStick/releases/tag/v0.1.7) 下载；需要微信语音输入、离线 Whisper 和右键审批控制时，请从当前源码构建最新版安装器。安装器支持 Apple Silicon 和 Intel；尚未经过 Apple 公证，若首次打开被 macOS 阻止，请右键 App 后选择“打开”。
 
 也可以从源码构建：
 

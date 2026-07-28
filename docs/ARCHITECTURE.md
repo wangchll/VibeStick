@@ -62,7 +62,7 @@ Bridge state is stored under:
 
 ## Transport
 
-v0.2.19 uses HTTP over Wi-Fi.
+v0.2.20 uses HTTP over Wi-Fi.
 
 BLE is not part of the current mainline transport. USB is used for flashing and serial logs, not for runtime state transport.
 
@@ -94,7 +94,7 @@ Codex observation covers all user-started root conversations visible in local se
 
 The StickS3 home screen is dedicated to Codex status and quota.
 
-## v0.2.19 Limits
+## v0.2.20 Limits
 
 - No Apple-notarized DMG; the release provides a signed universal App in a ZIP archive.
 - No signed firmware release artifact.

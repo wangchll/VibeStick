@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.20
+
+- Add a Chinese quick-start infographic covering installer setup, recognition modes, the manual BlackHole 2ch dependency for WeChat Input, and StickS3 button controls.
+
 ## v0.2.19
 
 - Generate an isolated ESP-IDF sdkconfig from committed defaults so stale local configuration cannot silently disable power management.

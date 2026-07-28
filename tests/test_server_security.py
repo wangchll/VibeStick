@@ -87,7 +87,7 @@ class ServerSecurityTests(unittest.TestCase):
                     headers={
                         **headers,
                         "X-Vibe-Stick-Firmware-Name": "vibestick",
-                        "X-Vibe-Stick-Firmware-Version": "0.2.19",
+                        "X-Vibe-Stick-Firmware-Version": "0.2.20",
                     },
                 )
                 accepted = connection.getresponse()
@@ -96,7 +96,7 @@ class ServerSecurityTests(unittest.TestCase):
 
             self.assertEqual(accepted.status, 200)
             self.assertTrue(payload["ok"])
-            self.assertEqual(payload["sample"]["firmware_version"], "0.2.19")
+            self.assertEqual(payload["sample"]["firmware_version"], "0.2.20")
 
     def test_loopback_host_does_not_require_token(self) -> None:
         self.assertFalse(app._host_requires_token("127.0.0.1"))
