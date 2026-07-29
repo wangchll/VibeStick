@@ -21,7 +21,7 @@ VibeStick 把 M5Stack StickS3 变成一个 Codex 桌面终端：显示任务状�
 - 2.4 GHz Wi-Fi 名称和密码。
 - 可选的语音转写 API Key；推荐 [SiliconFlow](https://cloud.siliconflow.cn)，也支持其他 OpenAI 兼容服务。
 
-最新源码版本为 **v0.3.0**。已公开发布的安装包仍可从 [v0.1.7 Release](https://github.com/deanxizian/VibeStick/releases/tag/v0.1.7) 下载；需要空间手势、微信语音输入、离线 Whisper 和右键审批控制时，请从当前源码构建最新版安装器。安装器支持 Apple Silicon 和 Intel；尚未经过 Apple 公证，若首次打开被 macOS 阻止，请右键 App 后选择“打开”。
+最新源码版本为 **v0.3.4**。已公开发布的安装包仍可从 [v0.1.7 Release](https://github.com/deanxizian/VibeStick/releases/tag/v0.1.7) 下载；需要空间手势、微信语音输入、离线 Whisper 和右键审批控制时，请从当前源码构建最新版安装器。安装器支持 Apple Silicon 和 Intel；尚未经过 Apple 公证，若首次打开被 macOS 阻止，请右键 App 后选择“打开”。
 
 也可以从源码构建：
 
@@ -63,7 +63,7 @@ Bridge 和 HUD 会随当前用户登录自动启动。Mac 与 StickS3 需要连�
 | 动作 | 默认 Codex 操作 | 默认 macOS 快捷键 |
 | --- | --- | --- |
 | 敲击 S3 两次 | 切换规划模式 | `Control+Shift+1` |
-| 敲击 S3 三次 | 切换快速模式 | `Control+Shift+@` |
+| 敲击 S3 三次 | 切换快速模式 | `Control+Shift+3` |
 | 连续摇晃 S3 | 新建任务 | `Command+N` |
 
 前两项默认值来自本机 `~/.codex/keybindings.json`。设置窗口支持 `default`、`disabled`，以及由 `command`、`control`、`option`、`shift` 组成的自定义 macOS 快捷键。

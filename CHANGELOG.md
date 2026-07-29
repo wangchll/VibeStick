@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.3.4
+
+- Replace first-threshold-wins gesture handling with delayed, mutually exclusive classification after motion settles.
+- Require six distinct motion peaks over at least 300 ms for shake while allowing tap and shake evidence to accumulate independently.
+- Emit taps only for exactly two or three impacts; discard ambiguous four-or-five-impact sequences instead of guessing the wrong action.
+
+## v0.3.3
+
+- Keep gesture-result status text within the three-Chinese-character display limit: `已识别` after delivery and `未发送` when delivery fails.
+
+## v0.3.2
+
+- Replace unsupported Latin gesture-result text with embedded Chinese glyphs, showing `识别成功` after Bridge delivery and `发送失败` when delivery fails.
+- Raise the actual Codex window, wait for it to become frontmost, and then inject custom mode shortcuts through the bundle-identified accessibility process.
+- Invoke the default shake action through Codex's native New Chat menu command so it no longer depends on renderer keyboard focus.
+
+## v0.3.1
+
+- Sync the Fast-mode gesture default with this Mac's updated Codex shortcut (`Control-Shift-3`).
+- Deliver gesture shortcuts to Codex's `ChatGPT` accessibility process using physical macOS key codes, so focus and keyboard-layout differences do not swallow the action.
+- Latch each tap impact until acceleration settles and keep an active tap sequence out of the shake detector, improving double- and triple-tap separation.
+- Log tap counts and firmware-to-Bridge gesture delivery results for device-side diagnosis.
+
 ## v0.3.0
 
 - Release configurable BMI270 spatial gestures activated by the front-plus-side button chord: double tap toggles Planning mode, triple tap toggles Fast mode, and shake creates a task.

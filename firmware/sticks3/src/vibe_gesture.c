@@ -22,9 +22,13 @@
 #define TAP_MIN_GAP_MS 55
 #define TAP_MAX_GAP_MS 330
 #define DOUBLE_TAP_SETTLE_MS 360
+#define TAP_RELEASE_DIVISOR 3
 #define SHAKE_MIN_GAP_MS 55
 #define SHAKE_MAX_GAP_MS 260
 #define SHAKE_SETTLE_MS 420
+#define SHAKE_REQUIRED_PEAKS 6
+#define SHAKE_MIN_DURATION_MS 300
+#define SHAKE_RELEASE_DIVISOR 2
 
 static const char *TAG = "vibe_gesture";
 static struct bmi2_dev s_imu;
@@ -113,9 +117,11 @@ static void gesture_task(void *arg)
     bool have_previous = false;
     int16_t previous_x = 0, previous_y = 0, previous_z = 0;
     int tap_count = 0, shake_count = 0;
-    int64_t last_tap_ms = 0, last_shake_ms = 0;
+    int64_t last_tap_ms = 0, last_shake_ms = 0, shake_started_ms = 0;
     int64_t armed_at_ms = 0;
     bool accelerometer_active = false;
+    bool tap_latched = false;
+    bool shake_latched = false;
 
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(POLL_INTERVAL_MS));
@@ -131,6 +137,9 @@ static void gesture_task(void *arg)
             }
             have_previous = false;
             tap_count = shake_count = 0;
+            tap_latched = false;
+            shake_latched = false;
+            shake_started_ms = 0;
             armed_at_ms = 0;
             atomic_store(&s_arm_requested, false);
             continue;
@@ -150,6 +159,9 @@ static void gesture_task(void *arg)
             }
             have_previous = false;
             tap_count = shake_count = 0;
+            tap_latched = false;
+            shake_latched = false;
+            shake_started_ms = 0;
             armed_at_ms = esp_timer_get_time() / 1000;
             emit(VIBE_GESTURE_ARMED);
             ESP_LOGI(TAG, "button chord armed tap/shake window");
@@ -179,6 +191,9 @@ static void gesture_task(void *arg)
             armed_at_ms = 0;
             have_previous = false;
             tap_count = shake_count = 0;
+            tap_latched = false;
+            shake_latched = false;
+            shake_started_ms = 0;
             continue;
         }
 
@@ -192,61 +207,95 @@ static void gesture_task(void *arg)
         }
         int derivative = abs((int)x - previous_x) + abs((int)y - previous_y) + abs((int)z - previous_z);
         previous_x = x; previous_y = y; previous_z = z;
-        if (tap_count == 2 && now_ms - last_tap_ms > DOUBLE_TAP_SETTLE_MS) {
+        if (tap_latched && derivative <= tap_threshold() / TAP_RELEASE_DIVISOR) {
+            tap_latched = false;
+        }
+        if (shake_latched && derivative <= shake_threshold() / SHAKE_RELEASE_DIVISOR) {
+            shake_latched = false;
+        }
+        if (shake_count && now_ms - last_shake_ms > SHAKE_SETTLE_MS) {
+            ESP_LOGI(TAG, "discarded incomplete shake peaks=%d duration_ms=%lld",
+                     shake_count, (long long)(last_shake_ms - shake_started_ms));
+            shake_count = 0;
+            shake_started_ms = 0;
+        }
+
+        if (derivative >= tap_threshold()) {
+            if (!tap_latched) {
+                int64_t gap_ms = tap_count ? now_ms - last_tap_ms : 0;
+                tap_latched = true;
+                if (tap_count == 0 || gap_ms > TAP_MAX_GAP_MS) {
+                    tap_count = 1;
+                    last_tap_ms = now_ms;
+                } else if (gap_ms >= TAP_MIN_GAP_MS) {
+                    ++tap_count;
+                    last_tap_ms = now_ms;
+                }
+                ESP_LOGI(TAG, "tap candidate count=%d derivative=%d gap_ms=%lld",
+                         tap_count, derivative, (long long)gap_ms);
+            }
+        }
+
+        if (derivative >= shake_threshold() && !shake_latched) {
+            int64_t gap_ms = shake_count ? now_ms - last_shake_ms : 0;
+            shake_latched = true;
+            if (shake_count == 0 || gap_ms > SHAKE_MAX_GAP_MS) {
+                shake_count = 1;
+                shake_started_ms = now_ms;
+                last_shake_ms = now_ms;
+            } else if (gap_ms >= SHAKE_MIN_GAP_MS) {
+                ++shake_count;
+                last_shake_ms = now_ms;
+            }
+            ESP_LOGI(TAG, "shake candidate peaks=%d derivative=%d duration_ms=%lld",
+                     shake_count, derivative, (long long)(now_ms - shake_started_ms));
+        }
+
+        if (shake_count >= SHAKE_REQUIRED_PEAKS &&
+            now_ms - shake_started_ms >= SHAKE_MIN_DURATION_MS) {
+            ESP_LOGI(TAG, "shake detected peaks=%d duration_ms=%lld", shake_count,
+                     (long long)(now_ms - shake_started_ms));
             int8_t result = set_accelerometer_enabled(false);
             if (result != BMI2_OK) {
                 ESP_LOGW(TAG, "accelerometer power-down failed: %d", result);
             } else {
                 accelerometer_active = false;
             }
-            emit(VIBE_GESTURE_DOUBLE_TAP);
-            tap_count = 0;
+            emit(VIBE_GESTURE_SHAKE);
+            tap_count = shake_count = 0;
+            tap_latched = shake_latched = false;
+            shake_started_ms = 0;
             armed_at_ms = 0;
             have_previous = false;
             continue;
         }
-        if (shake_count && now_ms - last_shake_ms > SHAKE_SETTLE_MS) shake_count = 0;
 
-        if (derivative >= tap_threshold()) {
-            if (tap_count == 0 || now_ms - last_tap_ms > TAP_MAX_GAP_MS) tap_count = 1;
-            else if (now_ms - last_tap_ms >= TAP_MIN_GAP_MS) ++tap_count;
-            last_tap_ms = now_ms;
-            shake_count = 0;
-            if (tap_count >= 3) {
-                ESP_LOGI(TAG, "triple tap detected (derivative=%d)", derivative);
-                int8_t result = set_accelerometer_enabled(false);
-                if (result != BMI2_OK) {
-                    ESP_LOGW(TAG, "accelerometer power-down failed: %d", result);
-                } else {
-                    accelerometer_active = false;
-                }
-                emit(VIBE_GESTURE_TRIPLE_TAP);
+        if (tap_count >= 2 && now_ms - last_tap_ms > DOUBLE_TAP_SETTLE_MS) {
+            vibe_gesture_event_t event = tap_count == 2
+                ? VIBE_GESTURE_DOUBLE_TAP
+                : tap_count == 3 ? VIBE_GESTURE_TRIPLE_TAP : VIBE_GESTURE_EXPIRED;
+            if (event == VIBE_GESTURE_EXPIRED) {
+                ESP_LOGI(TAG, "discarded ambiguous tap sequence count=%d", tap_count);
                 tap_count = 0;
-                armed_at_ms = 0;
-                have_previous = false;
-            }
-            continue;
-        }
-
-        if (derivative >= shake_threshold()) {
-            if (shake_count == 0 || now_ms - last_shake_ms > SHAKE_MAX_GAP_MS) shake_count = 1;
-            else if (now_ms - last_shake_ms >= SHAKE_MIN_GAP_MS) ++shake_count;
-            last_shake_ms = now_ms;
-            tap_count = 0;
-            if (shake_count >= 4) {
-                ESP_LOGI(TAG, "shake detected (derivative=%d)", derivative);
+            } else {
+                ESP_LOGI(TAG, "%s detected after settle",
+                         event == VIBE_GESTURE_DOUBLE_TAP ? "double tap" : "triple tap");
                 int8_t result = set_accelerometer_enabled(false);
                 if (result != BMI2_OK) {
                     ESP_LOGW(TAG, "accelerometer power-down failed: %d", result);
                 } else {
                     accelerometer_active = false;
                 }
-                emit(VIBE_GESTURE_SHAKE);
-                shake_count = 0;
+                emit(event);
+                tap_count = shake_count = 0;
+                tap_latched = shake_latched = false;
+                shake_started_ms = 0;
                 armed_at_ms = 0;
                 have_previous = false;
+                continue;
             }
         }
+        if (tap_count == 1 && now_ms - last_tap_ms > TAP_MAX_GAP_MS) tap_count = 0;
     }
 }
 

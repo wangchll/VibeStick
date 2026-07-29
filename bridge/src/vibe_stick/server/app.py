@@ -326,7 +326,11 @@ class BridgeStateStore:
                 "gesture", f"{gesture} has no default action for recognition safety"
             )
             return
-        result = self.input_injector.send_codex_shortcut(shortcut)
+        result = (
+            self.input_injector.new_codex_task()
+            if gesture == "shake"
+            else self.input_injector.send_codex_shortcut(shortcut)
+        )
         self._log_button_action(f"gesture_{gesture}_default", result)
 
     @staticmethod

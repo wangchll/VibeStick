@@ -1841,7 +1841,7 @@ static void post_simple_event(const char *event_name, const char *path)
     }
 }
 
-static void post_gesture_event(const char *gesture)
+static bool post_gesture_event(const char *gesture)
 {
     char body[128];
     snprintf(body, sizeof(body),
@@ -1851,10 +1851,15 @@ static void post_gesture_event(const char *gesture)
     esp_err_t err = http_request("POST", VIBE_STICK_EVENT_PATH, body,
                                  response, sizeof(response));
     if (err == ESP_OK && response[0] != '\0' && parse_state_json(response)) {
+        ESP_LOGI(TAG, "gesture event delivered gesture=%s", gesture);
         render_state();
         maybe_handle_alert();
+        return true;
     } else {
+        ESP_LOGW(TAG, "gesture event delivery failed gesture=%s err=%s response=%s",
+                 gesture, esp_err_to_name(err), response[0] ? response : "<empty>");
         render_state();
+        return false;
     }
 }
 
@@ -2618,12 +2623,11 @@ static void app_task(void *arg)
             atomic_store(&s_gesture_window_active, false);
             const char *gesture = event.type == VIBE_STICK_EVENT_GESTURE_DOUBLE_TAP ? "double_tap"
                 : event.type == VIBE_STICK_EVENT_GESTURE_TRIPLE_TAP ? "triple_tap" : "shake";
-            const char *label = event.type == VIBE_STICK_EVENT_GESTURE_DOUBLE_TAP ? "DOUBLE TAP"
-                : event.type == VIBE_STICK_EVENT_GESTURE_TRIPLE_TAP ? "TRIPLE TAP" : "SHAKE";
-            post_gesture_event(gesture);
+            bool delivered = post_gesture_event(gesture);
             s_last_activity_ms = now_ms;
             screen_wake();
             lvgl_lock();
+            const char *label = delivered ? "已识别" : "未发送";
             if (s_status_label) lv_label_set_text(s_status_label, label);
             if (s_pet_status_label) lv_label_set_text(s_pet_status_label, label);
             lvgl_unlock();

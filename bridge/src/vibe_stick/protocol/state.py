@@ -14,7 +14,7 @@ DEFAULT_GESTURE_SHORTCUTS = {
     # used to build this installer.  They are deliberately macOS Control
     # shortcuts (not Windows Ctrl aliases).
     "double_tap": "control+shift+1",
-    "triple_tap": "control+shift+@",
+    "triple_tap": "control+shift+3",
     "shake": "command+n",
 }
 

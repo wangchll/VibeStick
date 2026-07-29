@@ -1,6 +1,6 @@
 # States And Sounds
 
-VibeStick v0.3.0 plays sounds for key agent status changes, when a spatial-gesture window opens, and when a gesture is recognised. Recording states and WeChat virtual-audio streaming do not play sounds.
+VibeStick v0.3.4 plays sounds for key agent status changes, when a spatial-gesture window opens, and when a gesture is recognised. Recording states and WeChat virtual-audio streaming do not play sounds.
 
 | State | Trigger | Sound |
 | --- | --- | --- |

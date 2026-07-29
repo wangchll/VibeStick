@@ -1,6 +1,6 @@
 # Protocol
 
-VibeStick v0.3.0 uses HTTP over Wi-Fi between the StickS3 firmware and the local Mac bridge.
+VibeStick v0.3.4 uses HTTP over Wi-Fi between the StickS3 firmware and the local Mac bridge.
 
 Default bridge URL:
 
@@ -14,7 +14,7 @@ Firmware requests include:
 
 ```text
 X-Vibe-Stick-Firmware-Name: vibestick
-X-Vibe-Stick-Firmware-Version: 0.3.0
+X-Vibe-Stick-Firmware-Version: 0.3.4
 X-Vibe-Stick-Firmware-Transport: HTTP
 X-Vibe-Stick-Firmware-Build-Date: <compile date>
 ```
@@ -83,7 +83,7 @@ Returns the current bridge state:
     "message": ""
   },
   "bridge_name": "vibestick-bridge",
-  "bridge_version": "0.3.0"
+  "bridge_version": "0.3.4"
 }
 ```
 
@@ -101,7 +101,7 @@ Returns bridge health metadata:
 {
   "ok": true,
   "bridge_name": "vibestick-bridge",
-  "bridge_version": "0.3.0"
+  "bridge_version": "0.3.4"
 }
 ```
 
@@ -135,7 +135,7 @@ When spatial gestures are enabled, pressing the front and side buttons together 
 {"event":"gesture","source":"sticks3","gesture":"double_tap"}
 ```
 
-Supported values are `double_tap`, `triple_tap`, and `shake`. The Bridge ignores all gesture events while the persisted `gestures_enabled` setting is false. Defaults mirror this Mac's Codex keybindings: double tap switches Planning mode (`Control-Shift-1`), triple tap switches Fast mode (`Control-Shift-@`), and shake creates a new task (`Command-N`). Each mapping remains editable in the menu-bar settings window.
+Supported values are `double_tap`, `triple_tap`, and `shake`. The Bridge ignores all gesture events while the persisted `gestures_enabled` setting is false. Defaults mirror this Mac's Codex keybindings: double tap switches Planning mode (`Control-Shift-1`), triple tap switches Fast mode (`Control-Shift-3`), and shake creates a new task (`Command-N`). Each mapping remains editable in the menu-bar settings window.
 
 `POST /api/gestures` is the loopback management endpoint used by the menu-bar settings window. It persists the global switch, a 2–8 second recognition window, sensitivity, and mappings:
 

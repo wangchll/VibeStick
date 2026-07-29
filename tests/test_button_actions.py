@@ -26,6 +26,7 @@ class ButtonActionTests(unittest.TestCase):
         self.store.input_injector.approve_codex_task.return_value = PasteResult(True, "approved")
         self.store.input_injector.cancel_codex_task.return_value = PasteResult(True, "cancelled")
         self.store.input_injector.send_codex_shortcut.return_value = PasteResult(True, "shortcut")
+        self.store.input_injector.new_codex_task.return_value = PasteResult(True, "new task")
 
     def test_gesture_is_ignored_while_disabled(self) -> None:
         self.store.update_from_event({"event": "gesture", "gesture": "shake"})
@@ -36,7 +37,8 @@ class ButtonActionTests(unittest.TestCase):
         self.store._state.codex.status = app.AgentStatus.RUNNING
         self.store.update_from_event({"event": "gesture", "gesture": "shake"})
         self.store.input_injector.pause_current_codex_task.assert_not_called()
-        self.store.input_injector.send_codex_shortcut.assert_called_once_with("command+n")
+        self.store.input_injector.new_codex_task.assert_called_once_with()
+        self.store.input_injector.send_codex_shortcut.assert_not_called()
 
     def test_double_tap_uses_local_plan_mode_shortcut(self) -> None:
         self.store._state.gestures_enabled = True
@@ -49,7 +51,7 @@ class ButtonActionTests(unittest.TestCase):
         self.store.update_from_event({"event": "gesture", "gesture": "triple_tap"})
         self.assertEqual(
             self.store.input_injector.send_codex_shortcut.call_args_list,
-            [mock.call("control+shift+@")],
+            [mock.call("control+shift+3")],
         )
 
     def test_custom_mapping_overrides_default_gesture_action(self) -> None:

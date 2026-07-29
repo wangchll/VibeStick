@@ -17,6 +17,12 @@ class MacPasteInjector:
         "return": 36, "enter": 36, "escape": 53, "esc": 53, "space": 49,
         "tab": 48, "delete": 51, "backspace": 51, "left": 123, "right": 124,
         "down": 125, "up": 126, "home": 115, "end": 119,
+        "a": 0, "b": 11, "c": 8, "d": 2, "e": 14, "f": 3, "g": 5,
+        "h": 4, "i": 34, "j": 38, "k": 40, "l": 37, "m": 46,
+        "n": 45, "o": 31, "p": 35, "q": 12, "r": 15, "s": 1,
+        "t": 17, "u": 32, "v": 9, "w": 13, "x": 7, "y": 16, "z": 6,
+        "0": 29, "1": 18, "2": 19, "3": 20, "4": 21,
+        "5": 23, "6": 22, "7": 26, "8": 28, "9": 25,
     }
     _MODIFIERS = {
         "cmd": "command down", "command": "command down",
@@ -80,18 +86,71 @@ class MacPasteInjector:
         using = ""
         if modifiers:
             using = " using {" + ", ".join(modifiers) + "}"
-        if key in self._KEY_CODES:
-            command = f'key code {self._KEY_CODES[key]}{using}'
+        physical_key = "2" if key == "@" else key
+        if physical_key in self._KEY_CODES:
+            command = f'key code {self._KEY_CODES[physical_key]}{using}'
         else:
             escaped = key.replace("\\", "\\\\").replace('"', '\\"')
             command = f'keystroke "{escaped}"{using}'
         return self._run_osascript(
             [
                 'tell application id "com.openai.codex" to activate',
-                "delay 0.12",
-                f'tell application "System Events" to {command}',
+                'tell application "System Events"',
+                '  set codexProcesses to every application process whose bundle identifier is "com.openai.codex"',
+                '  if (count of codexProcesses) is 0 then error "Codex accessibility process is not running"',
+                '  set codexProcess to first item of codexProcesses',
+                '  tell codexProcess',
+                '    set frontmost to true',
+                '    if (count of windows) > 0 then perform action "AXRaise" of front window',
+                '  end tell',
+                '  repeat 20 times',
+                '    if frontmost of codexProcess then exit repeat',
+                '    delay 0.05',
+                '  end repeat',
+                '  if not (frontmost of codexProcess) then error "Codex did not become frontmost"',
+                '  delay 0.25',
+                f'  {command}',
+                'end tell',
             ],
             success_message=f"Sent Codex shortcut {shortcut}",
+        )
+
+    def new_codex_task(self) -> PasteResult:
+        """Open a new Codex task through its native menu command.
+
+        The default shake action should not depend on which renderer control
+        currently owns keyboard focus.  Selecting the application's own menu
+        item invokes the same command as Command-N while remaining reliable
+        when an overlay or side panel is focused.
+        """
+        return self._run_osascript(
+            [
+                'tell application id "com.openai.codex" to activate',
+                'tell application "System Events"',
+                '  set codexProcesses to every application process whose bundle identifier is "com.openai.codex"',
+                '  if (count of codexProcesses) is 0 then error "Codex accessibility process is not running"',
+                '  set codexProcess to first item of codexProcesses',
+                '  tell codexProcess',
+                '    set frontmost to true',
+                '    if (count of windows) > 0 then perform action "AXRaise" of front window',
+                '    set newTaskItem to missing value',
+                '    repeat with topItem in menu bar items of menu bar 1',
+                '      try',
+                '        repeat with candidate in menu items of menu 1 of topItem',
+                '          if value of attribute "AXMenuItemCmdChar" of candidate is "N" and value of attribute "AXMenuItemCmdModifiers" of candidate is 0 then',
+                '            set newTaskItem to candidate',
+                '            exit repeat',
+                '          end if',
+                '        end repeat',
+                '      end try',
+                '      if newTaskItem is not missing value then exit repeat',
+                '    end repeat',
+                '    if newTaskItem is missing value then error "Codex New Chat menu item was not found"',
+                '    click newTaskItem',
+                '  end tell',
+                'end tell',
+            ],
+            success_message="Opened a new Codex task",
         )
 
     @classmethod

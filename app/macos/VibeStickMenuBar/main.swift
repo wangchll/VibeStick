@@ -126,7 +126,7 @@ final class GestureSettingsController: NSObject, NSWindowDelegate {
     private var fields: [String: NSTextField] = [:]
     private let gestureRows: [(String, String, String)] = [
         ("double_tap", "敲击两次 S3", "切换规划模式（本机：⌃⇧1）"),
-        ("triple_tap", "敲击三次 S3", "切换快速模式（本机：⌃⇧@）"),
+        ("triple_tap", "敲击三次 S3", "切换快速模式（本机：⌃⇧3）"),
         ("shake", "连续摇晃 S3", "新建 Codex 任务（⌘N）"),
     ]
 
@@ -216,7 +216,7 @@ final class GestureSettingsController: NSObject, NSWindowDelegate {
         grid.rowSpacing = 8
         content.addArrangedSubview(grid)
 
-        let syntax = NSTextField(wrappingLabelWithString: "本机 Codex 自定义键位已作为默认值：规划模式 control+shift+1，快速模式 control+shift+@。macOS 自定义格式示例：command+n、control+shift+1。")
+        let syntax = NSTextField(wrappingLabelWithString: "本机 Codex 自定义键位已作为默认值：规划模式 control+shift+1，快速模式 control+shift+3。macOS 自定义格式示例：command+n、control+shift+1。")
         syntax.textColor = .secondaryLabelColor
         syntax.font = .systemFont(ofSize: 11)
         syntax.maximumNumberOfLines = 2
@@ -404,7 +404,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(inst)
         menu.addItem(.separator())
 
-        let about = NSMenuItem(title: "关于 VibeStick v0.3.0", action: nil, keyEquivalent: "")
+        let about = NSMenuItem(title: "关于 VibeStick v0.3.4", action: nil, keyEquivalent: "")
         menu.addItem(about)
 
         let quit = NSMenuItem(title: "退出菜单栏图标", action: #selector(quitMenuBar), keyEquivalent: "")
