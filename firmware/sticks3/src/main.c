@@ -6,6 +6,7 @@
 
 #include "vibe_audio.h"
 #include "vibe_board.h"
+#include "vibe_gesture.h"
 #include "vibe_power_policy.h"
 #include "vibe_roxy_assets.h"
 #include "vibe_stick_config.h"
@@ -87,6 +88,12 @@ typedef enum {
     VIBE_STICK_EVENT_ENTER_PET,
     VIBE_STICK_EVENT_EXIT_PET,
     VIBE_STICK_EVENT_CLEAR_DRAFT,
+    VIBE_STICK_EVENT_GESTURE_ARM_REQUEST,
+    VIBE_STICK_EVENT_GESTURE_ARMED,
+    VIBE_STICK_EVENT_GESTURE_EXPIRED,
+    VIBE_STICK_EVENT_GESTURE_DOUBLE_TAP,
+    VIBE_STICK_EVENT_GESTURE_TRIPLE_TAP,
+    VIBE_STICK_EVENT_GESTURE_SHAKE,
 } agent_event_type_t;
 
 typedef struct {
@@ -142,6 +149,9 @@ static bool s_recording_overlay_visible;
 static atomic_bool s_long_press_active;
 static atomic_bool s_long_start_pending;
 static atomic_bool s_long_stop_pending;
+static atomic_bool s_front_button_down;
+static atomic_bool s_side_button_down;
+static atomic_bool s_button_chord_consuming;
 static char s_last_alert_event_id[56];
 static char s_last_alert_type[24];
 static bool s_alert_sound_baseline_ready;
@@ -155,6 +165,11 @@ static size_t s_recording_stream_offset;
 static int64_t s_recording_stream_last_ms;
 static int64_t s_post_recording_action_deadline_ms;
 static bool s_pet_view_visible;
+static bool s_gestures_enabled;
+static atomic_bool s_gesture_window_active;
+static int s_gesture_window_ms = 4000;
+static vibe_gesture_sensitivity_t s_gesture_sensitivity =
+    VIBE_GESTURE_SENSITIVITY_CONSERVATIVE;
 static vibe_roxy_state_t s_pet_animation_state = VIBE_ROXY_IDLE;
 static size_t s_pet_frame_index;
 static uint16_t *s_pet_framebuffer;
@@ -258,6 +273,19 @@ static void queue_event(agent_event_type_t type)
     agent_event_t event = {.type = type};
     if (xQueueSend(s_event_queue, &event, 0) != pdTRUE) {
         ESP_LOGW(TAG, "event queue full; dropped type=%d", (int)type);
+    }
+}
+
+static void gesture_event_cb(vibe_gesture_event_t event, void *context)
+{
+    (void)context;
+    switch (event) {
+    case VIBE_GESTURE_ARMED: queue_event(VIBE_STICK_EVENT_GESTURE_ARMED); break;
+    case VIBE_GESTURE_EXPIRED: queue_event(VIBE_STICK_EVENT_GESTURE_EXPIRED); break;
+    case VIBE_GESTURE_DOUBLE_TAP: queue_event(VIBE_STICK_EVENT_GESTURE_DOUBLE_TAP); break;
+    case VIBE_GESTURE_TRIPLE_TAP: queue_event(VIBE_STICK_EVENT_GESTURE_TRIPLE_TAP); break;
+    case VIBE_GESTURE_SHAKE: queue_event(VIBE_STICK_EVENT_GESTURE_SHAKE); break;
+    default: break;
     }
 }
 
@@ -1106,8 +1134,10 @@ static void render_state(void)
     lv_obj_clear_flag(s_codex_icon, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(s_codex_label, "Codex");
     lv_obj_set_style_text_color(s_codex_label, lv_color_hex(0xf3f4f6), 0);
-    lv_label_set_text(s_status_label, status_text_for(display_state->status));
-    lv_label_set_text(s_pet_status_label, status_text_for(display_state->status));
+    const char *visible_status = atomic_load(&s_gesture_window_active)
+        ? "识别中" : status_text_for(display_state->status);
+    lv_label_set_text(s_status_label, visible_status);
+    lv_label_set_text(s_pet_status_label, visible_status);
     set_roxy_animation_state(roxy_state_for_status(display_state->status));
     if (strcmp(display_state->status, "RUNNING") == 0 &&
         display_state->active_conversations > 0) {
@@ -1664,6 +1694,30 @@ static bool parse_state_json(const char *json)
             }
         }
     }
+    cJSON *gestures = cJSON_GetObjectItemCaseSensitive(state_root, "gestures_enabled");
+    cJSON *gesture_window = cJSON_GetObjectItemCaseSensitive(state_root, "gesture_window_ms");
+    cJSON *gesture_sensitivity = cJSON_GetObjectItemCaseSensitive(state_root, "gesture_sensitivity");
+    if (cJSON_IsBool(gestures)) {
+        s_gestures_enabled = cJSON_IsTrue(gestures);
+    }
+    if (cJSON_IsNumber(gesture_window)) {
+        int value = gesture_window->valueint;
+        s_gesture_window_ms = value < 2000 ? 2000 : (value > 8000 ? 8000 : value);
+    }
+    if (cJSON_IsString(gesture_sensitivity) && gesture_sensitivity->valuestring) {
+        if (strcmp(gesture_sensitivity->valuestring, "sensitive") == 0) {
+            s_gesture_sensitivity = VIBE_GESTURE_SENSITIVITY_SENSITIVE;
+        } else if (strcmp(gesture_sensitivity->valuestring, "standard") == 0) {
+            s_gesture_sensitivity = VIBE_GESTURE_SENSITIVITY_STANDARD;
+        } else {
+            s_gesture_sensitivity = VIBE_GESTURE_SENSITIVITY_CONSERVATIVE;
+        }
+    }
+    vibe_gesture_set_enabled(s_gestures_enabled, s_gesture_window_ms,
+                             s_gesture_sensitivity);
+    if (!s_gestures_enabled) {
+        atomic_store(&s_gesture_window_active, false);
+    }
     cJSON_Delete(root);
     return true;
 }
@@ -1782,6 +1836,25 @@ static void post_simple_event(const char *event_name, const char *path)
     if (err == ESP_OK && response[0] != '\0' && parse_state_json(response)) {
         render_state();
         maybe_handle_alert();
+    } else {
+        render_state();
+    }
+}
+
+static void post_gesture_event(const char *gesture)
+{
+    char body[128];
+    snprintf(body, sizeof(body),
+             "{\"event\":\"gesture\",\"source\":\"sticks3\",\"gesture\":\"%s\"}",
+             gesture);
+    char response[HTTP_JSON_RESPONSE_CAPACITY] = {0};
+    esp_err_t err = http_request("POST", VIBE_STICK_EVENT_PATH, body,
+                                 response, sizeof(response));
+    if (err == ESP_OK && response[0] != '\0' && parse_state_json(response)) {
+        render_state();
+        maybe_handle_alert();
+    } else {
+        render_state();
     }
 }
 
@@ -2226,41 +2299,52 @@ static void button_single_click_cb(void *button_handle, void *usr_data)
 {
     (void)button_handle;
     (void)usr_data;
-    queue_event(VIBE_STICK_EVENT_SHORT_PRESS);
+    if (!atomic_load(&s_button_chord_consuming)) {
+        queue_event(VIBE_STICK_EVENT_SHORT_PRESS);
+    }
 }
 
 static void button_double_click_cb(void *button_handle, void *usr_data)
 {
     (void)button_handle;
     (void)usr_data;
-    queue_event(VIBE_STICK_EVENT_DOUBLE_CLICK);
+    if (!atomic_load(&s_button_chord_consuming)) {
+        queue_event(VIBE_STICK_EVENT_DOUBLE_CLICK);
+    }
 }
 
 static void button_side_click_cb(void *button_handle, void *usr_data)
 {
     (void)button_handle;
     (void)usr_data;
-    queue_event(VIBE_STICK_EVENT_ENTER_PET);
+    if (!atomic_load(&s_button_chord_consuming)) {
+        queue_event(VIBE_STICK_EVENT_ENTER_PET);
+    }
 }
 
 static void button_side_double_cb(void *button_handle, void *usr_data)
 {
     (void)button_handle;
     (void)usr_data;
-    queue_event(VIBE_STICK_EVENT_EXIT_PET);
+    if (!atomic_load(&s_button_chord_consuming)) {
+        queue_event(VIBE_STICK_EVENT_EXIT_PET);
+    }
 }
 
 static void button_side_long_cb(void *button_handle, void *usr_data)
 {
     (void)button_handle;
     (void)usr_data;
-    queue_event(VIBE_STICK_EVENT_CLEAR_DRAFT);
+    if (!atomic_load(&s_button_chord_consuming)) {
+        queue_event(VIBE_STICK_EVENT_CLEAR_DRAFT);
+    }
 }
 
 static void button_long_start_cb(void *button_handle, void *usr_data)
 {
     (void)button_handle;
     (void)usr_data;
+    if (atomic_load(&s_button_chord_consuming)) return;
     atomic_store(&s_long_press_active, true);
     atomic_store(&s_long_start_pending, true);
     queue_event(VIBE_STICK_EVENT_LONG_START);
@@ -2270,10 +2354,36 @@ static void button_up_cb(void *button_handle, void *usr_data)
 {
     (void)button_handle;
     (void)usr_data;
-    if (atomic_exchange(&s_long_press_active, false)) {
+    atomic_store(&s_front_button_down, false);
+    if (!atomic_load(&s_button_chord_consuming) &&
+        atomic_exchange(&s_long_press_active, false)) {
         atomic_store(&s_long_stop_pending, true);
         queue_event(VIBE_STICK_EVENT_LONG_STOP);
     }
+}
+
+static void button_down_cb(void *button_handle, void *usr_data)
+{
+    (void)button_handle;
+    atomic_bool *pressed = (atomic_bool *)usr_data;
+    if (atomic_load(&s_button_chord_consuming) &&
+        !atomic_load(&s_front_button_down) && !atomic_load(&s_side_button_down)) {
+        atomic_store(&s_button_chord_consuming, false);
+    }
+    atomic_store(pressed, true);
+    if (atomic_load(&s_front_button_down) && atomic_load(&s_side_button_down) &&
+        !atomic_exchange(&s_button_chord_consuming, true)) {
+        atomic_store(&s_long_press_active, false);
+        atomic_store(&s_long_start_pending, false);
+        queue_event(VIBE_STICK_EVENT_GESTURE_ARM_REQUEST);
+    }
+}
+
+static void button_side_up_cb(void *button_handle, void *usr_data)
+{
+    (void)button_handle;
+    (void)usr_data;
+    atomic_store(&s_side_button_down, false);
 }
 
 static esp_err_t init_buttons(void)
@@ -2288,6 +2398,9 @@ static esp_err_t init_buttons(void)
     ESP_RETURN_ON_ERROR(iot_button_new_gpio_device(&button_config, &front_gpio_config,
                                                     &front_button),
                         TAG, "front button");
+    ESP_RETURN_ON_ERROR(iot_button_register_cb(front_button, BUTTON_PRESS_DOWN, NULL,
+                                                button_down_cb, &s_front_button_down),
+                        TAG, "front button down");
     ESP_RETURN_ON_ERROR(iot_button_register_cb(front_button, BUTTON_SINGLE_CLICK, NULL,
                                                 button_single_click_cb, NULL),
                         TAG, "front button single");
@@ -2315,6 +2428,12 @@ static esp_err_t init_buttons(void)
     ESP_RETURN_ON_ERROR(iot_button_new_gpio_device(&button_config, &side_gpio_config,
                                                     &side_button),
                         TAG, "side button");
+    ESP_RETURN_ON_ERROR(iot_button_register_cb(side_button, BUTTON_PRESS_DOWN, NULL,
+                                                button_down_cb, &s_side_button_down),
+                        TAG, "side button down");
+    ESP_RETURN_ON_ERROR(iot_button_register_cb(side_button, BUTTON_PRESS_UP, NULL,
+                                                button_side_up_cb, NULL),
+                        TAG, "side button up");
     ESP_RETURN_ON_ERROR(iot_button_register_cb(side_button, BUTTON_SINGLE_CLICK, NULL,
                                                 button_side_click_cb, NULL),
                         TAG, "side button single");
@@ -2425,11 +2544,19 @@ static void app_task(void *arg)
             }
             break;
         case VIBE_STICK_EVENT_LONG_START:
+            atomic_store(&s_gesture_window_active, false);
+            vibe_gesture_set_enabled(false, s_gesture_window_ms, s_gesture_sensitivity);
             (void)process_pending_long_start();
+            if (!vibe_audio_is_recording()) {
+                vibe_gesture_set_enabled(s_gestures_enabled, s_gesture_window_ms,
+                                         s_gesture_sensitivity);
+            }
             break;
         case VIBE_STICK_EVENT_LONG_STOP:
             if (atomic_exchange(&s_long_stop_pending, false)) {
                 handle_recording_stop();
+                vibe_gesture_set_enabled(s_gestures_enabled, s_gesture_window_ms,
+                                         s_gesture_sensitivity);
             }
             break;
         case VIBE_STICK_EVENT_ENTER_PET:
@@ -2458,6 +2585,51 @@ static void app_task(void *arg)
             // that a pasted draft exists and no approval is pending.
             post_simple_event("button_clear_draft", NULL);
             break;
+        case VIBE_STICK_EVENT_GESTURE_ARM_REQUEST:
+            if (!vibe_audio_is_recording() && s_gestures_enabled) {
+                esp_err_t arm_err = vibe_gesture_arm();
+                if (arm_err != ESP_OK) {
+                    ESP_LOGW(TAG, "gesture chord arm failed: %s", esp_err_to_name(arm_err));
+                }
+            } else {
+                ESP_LOGI(TAG, "gesture chord ignored: gestures disabled or recording");
+            }
+            break;
+        case VIBE_STICK_EVENT_GESTURE_ARMED:
+            atomic_store(&s_gesture_window_active, true);
+            s_last_activity_ms = now_ms;
+            screen_wake();
+            lvgl_lock();
+            if (s_status_label) lv_label_set_text(s_status_label, "识别中");
+            if (s_pet_status_label) lv_label_set_text(s_pet_status_label, "识别中");
+            lvgl_unlock();
+            vibe_audio_play_sound(VIBE_STICK_SOUND_GESTURE_ARMED);
+            ESP_LOGI(TAG, "gesture window armed for %d ms", s_gesture_window_ms);
+            break;
+        case VIBE_STICK_EVENT_GESTURE_EXPIRED:
+            atomic_store(&s_gesture_window_active, false);
+            ESP_LOGI(TAG, "gesture window expired");
+            render_state();
+            break;
+        case VIBE_STICK_EVENT_GESTURE_DOUBLE_TAP:
+        case VIBE_STICK_EVENT_GESTURE_TRIPLE_TAP:
+        case VIBE_STICK_EVENT_GESTURE_SHAKE: {
+            if (vibe_audio_is_recording()) break;
+            atomic_store(&s_gesture_window_active, false);
+            const char *gesture = event.type == VIBE_STICK_EVENT_GESTURE_DOUBLE_TAP ? "double_tap"
+                : event.type == VIBE_STICK_EVENT_GESTURE_TRIPLE_TAP ? "triple_tap" : "shake";
+            const char *label = event.type == VIBE_STICK_EVENT_GESTURE_DOUBLE_TAP ? "DOUBLE TAP"
+                : event.type == VIBE_STICK_EVENT_GESTURE_TRIPLE_TAP ? "TRIPLE TAP" : "SHAKE";
+            post_gesture_event(gesture);
+            s_last_activity_ms = now_ms;
+            screen_wake();
+            lvgl_lock();
+            if (s_status_label) lv_label_set_text(s_status_label, label);
+            if (s_pet_status_label) lv_label_set_text(s_pet_status_label, label);
+            lvgl_unlock();
+            vibe_audio_play_sound(VIBE_STICK_SOUND_GESTURE_RECOGNIZED);
+            break;
+        }
         }
     }
 }
@@ -2493,6 +2665,10 @@ void app_main(void)
     render_state();
     ESP_ERROR_CHECK(init_buttons());
     ESP_ERROR_CHECK(vibe_audio_init());
+    esp_err_t gesture_err = vibe_gesture_init(vibe_board_i2c_bus(), gesture_event_cb, NULL);
+    if (gesture_err != ESP_OK) {
+        ESP_LOGW(TAG, "BMI270 gestures unavailable: %s", esp_err_to_name(gesture_err));
+    }
     ESP_ERROR_CHECK(init_wifi());
     BaseType_t app_task_created = xTaskCreate(app_task, "agent_app", 10240, NULL, 4, NULL);
     ESP_ERROR_CHECK(app_task_created == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);

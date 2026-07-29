@@ -8,6 +8,25 @@ from vibe_stick.paste.input_injector import MacPasteInjector
 
 
 class MacInputInjectorTests(unittest.TestCase):
+    def test_shortcut_validation_canonicalizes_aliases(self) -> None:
+        self.assertEqual(MacPasteInjector.validate_shortcut("Command+Alt+K"), "command+option+k")
+        self.assertEqual(MacPasteInjector.validate_shortcut("Ctrl+Shift+Tab"), "control+shift+tab")
+
+    def test_shortcut_validation_rejects_unsafe_or_unmodified_text(self) -> None:
+        for value in ("k", "cmd+unknown-key", "cmd+k; display dialog"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                MacPasteInjector.validate_shortcut(value)
+
+    @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Darwin")
+    @mock.patch("vibe_stick.paste.input_injector.subprocess.run")
+    def test_custom_shortcut_activates_codex(self, run: mock.Mock, _system: mock.Mock) -> None:
+        run.return_value = subprocess.CompletedProcess([], 0, "", "")
+        result = MacPasteInjector().send_codex_shortcut("cmd+shift+k")
+        self.assertTrue(result.success)
+        args = run.call_args.args[0]
+        self.assertIn('tell application id "com.openai.codex" to activate', args)
+        self.assertIn('tell application "System Events" to keystroke "k" using {command down, shift down}', args)
+
     @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Darwin")
     @mock.patch("vibe_stick.paste.input_injector.subprocess.run")
     def test_press_enter_sends_return_key(self, run: mock.Mock, _system: mock.Mock) -> None:

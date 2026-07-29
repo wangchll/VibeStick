@@ -25,6 +25,57 @@ class ButtonActionTests(unittest.TestCase):
         self.store.input_injector.clear_codex_draft.return_value = PasteResult(True, "cleared")
         self.store.input_injector.approve_codex_task.return_value = PasteResult(True, "approved")
         self.store.input_injector.cancel_codex_task.return_value = PasteResult(True, "cancelled")
+        self.store.input_injector.send_codex_shortcut.return_value = PasteResult(True, "shortcut")
+
+    def test_gesture_is_ignored_while_disabled(self) -> None:
+        self.store.update_from_event({"event": "gesture", "gesture": "shake"})
+        self.store.input_injector.pause_current_codex_task.assert_not_called()
+
+    def test_shake_opens_a_new_task_by_default(self) -> None:
+        self.store._state.gestures_enabled = True
+        self.store._state.codex.status = app.AgentStatus.RUNNING
+        self.store.update_from_event({"event": "gesture", "gesture": "shake"})
+        self.store.input_injector.pause_current_codex_task.assert_not_called()
+        self.store.input_injector.send_codex_shortcut.assert_called_once_with("command+n")
+
+    def test_double_tap_uses_local_plan_mode_shortcut(self) -> None:
+        self.store._state.gestures_enabled = True
+        self.store.update_from_event({"event": "gesture", "gesture": "double_tap"})
+        self.store.input_injector.send_codex_shortcut.assert_called_once_with("control+shift+1")
+        self.store.input_injector.press_enter.assert_not_called()
+
+    def test_triple_tap_uses_local_fast_mode_shortcut(self) -> None:
+        self.store._state.gestures_enabled = True
+        self.store.update_from_event({"event": "gesture", "gesture": "triple_tap"})
+        self.assertEqual(
+            self.store.input_injector.send_codex_shortcut.call_args_list,
+            [mock.call("control+shift+@")],
+        )
+
+    def test_custom_mapping_overrides_default_gesture_action(self) -> None:
+        self.store._state.gestures_enabled = True
+        self.store._state.gesture_mappings = {"shake": "shortcut:cmd+shift+k"}
+        self.store.update_from_event({"event": "gesture", "gesture": "shake"})
+        self.store.input_injector.send_codex_shortcut.assert_called_once_with("cmd+shift+k")
+        self.store.input_injector.pause_current_codex_task.assert_not_called()
+
+    def test_disabled_mapping_ignores_individual_gesture(self) -> None:
+        self.store._state.gestures_enabled = True
+        self.store._state.gesture_mappings = {"shake": "disabled"}
+        self.store.update_from_event({"event": "gesture", "gesture": "shake"})
+        self.store.input_injector.pause_current_codex_task.assert_not_called()
+
+    def test_gesture_configuration_validates_and_persists(self) -> None:
+        result = self.store.set_gesture_configuration({
+            "enabled": True,
+            "window_ms": 9000,
+            "sensitivity": "standard",
+            "mappings": {"double_tap": "shortcut:Command+Alt+K"},
+        })
+        self.assertTrue(result["enabled"])
+        self.assertEqual(result["window_ms"], 8000)
+        self.assertEqual(result["sensitivity"], "standard")
+        self.assertEqual(result["mappings"]["double_tap"], "shortcut:command+option+k")
 
     def test_short_press_sends_and_clears_alert(self) -> None:
         self.store._last_session_pasted = True

@@ -33,6 +33,8 @@ from vibe_stick.protocol.state import (
     AgentStatus,
     CodexState,
     ProviderState,
+    GESTURE_NAMES,
+    DEFAULT_GESTURE_SHORTCUTS,
     default_state,
     event_id,
     now_time_text,
@@ -195,6 +197,52 @@ class BridgeStateStore:
             self._save_state_locked()
             return clamped
 
+    def set_gestures_enabled(self, enabled: bool) -> bool:
+        with self._lock:
+            self._state.gestures_enabled = bool(enabled)
+            self._save_state_locked()
+            return self._state.gestures_enabled
+
+    def set_gesture_configuration(self, body: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            if "enabled" in body:
+                if not isinstance(body["enabled"], bool):
+                    raise ValueError("enabled must be a boolean")
+                self._state.gestures_enabled = body["enabled"]
+            if "window_ms" in body:
+                value = int(body["window_ms"])
+                self._state.gesture_window_ms = max(2000, min(8000, value))
+            if "sensitivity" in body:
+                value = str(body["sensitivity"]).strip().lower()
+                if value not in {"conservative", "standard", "sensitive"}:
+                    raise ValueError("unsupported gesture sensitivity")
+                self._state.gesture_sensitivity = value
+            if "mappings" in body:
+                mappings = body["mappings"]
+                if not isinstance(mappings, dict):
+                    raise ValueError("mappings must be an object")
+                unknown = set(map(str, mappings)) - set(GESTURE_NAMES)
+                if unknown:
+                    raise ValueError("unknown gesture mapping")
+                validated: dict[str, str] = {}
+                for gesture in GESTURE_NAMES:
+                    mapping = str(mappings.get(gesture, "default")).strip().lower()
+                    if mapping in {"default", "disabled"}:
+                        validated[gesture] = mapping
+                    elif mapping.startswith("shortcut:"):
+                        shortcut = MacPasteInjector.validate_shortcut(mapping.removeprefix("shortcut:"))
+                        validated[gesture] = f"shortcut:{shortcut}"
+                    else:
+                        raise ValueError(f"invalid mapping for {gesture}")
+                self._state.gesture_mappings = validated
+            self._save_state_locked()
+            return {
+                "enabled": self._state.gestures_enabled,
+                "window_ms": self._state.gesture_window_ms,
+                "sensitivity": self._state.gesture_sensitivity,
+                "mappings": dict(self._state.gesture_mappings or {}),
+            }
+
     def update_from_event(self, event: dict[str, Any]) -> VibeStickState:
         with self._lock:
             event_name = str(event.get("event") or "")
@@ -252,8 +300,34 @@ class BridgeStateStore:
                     if result.success:
                         self._last_approval_action_at = time.monotonic()
                         self._clear_approval_pending_locked()
+            elif event_name == "gesture":
+                self._handle_gesture_locked(str(event.get("gesture") or ""))
             self._save_state_locked()
             return self._state_snapshot_locked()
+
+    def _handle_gesture_locked(self, gesture: str) -> None:
+        if not self._state.gestures_enabled:
+            self._log_ignored_button_action("gesture", "spatial gestures are disabled")
+            return
+        if gesture not in GESTURE_NAMES:
+            self._log_ignored_button_action("gesture", "unknown gesture")
+            return
+        mapping = (self._state.gesture_mappings or {}).get(gesture, "default")
+        if mapping == "disabled":
+            self._log_ignored_button_action("gesture", f"{gesture} is disabled")
+            return
+        if mapping.startswith("shortcut:"):
+            result = self.input_injector.send_codex_shortcut(mapping.removeprefix("shortcut:"))
+            self._log_button_action(f"gesture_{gesture}_shortcut", result)
+            return
+        shortcut = DEFAULT_GESTURE_SHORTCUTS[gesture]
+        if shortcut is None:
+            self._log_ignored_button_action(
+                "gesture", f"{gesture} has no default action for recognition safety"
+            )
+            return
+        result = self.input_injector.send_codex_shortcut(shortcut)
+        self._log_button_action(f"gesture_{gesture}_default", result)
 
     @staticmethod
     def _log_button_action(action: str, result: PasteResult) -> None:
@@ -581,6 +655,11 @@ def make_handler(
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
+            if parsed.path.startswith("/api/") and not _is_loopback_client(
+                self.client_address[0]
+            ):
+                self._send_error(HTTPStatus.FORBIDDEN, "Management API is loopback-only")
+                return
             if parsed.path in _protected_paths() and not self._is_authorized():
                 self._send_error(HTTPStatus.UNAUTHORIZED, "Unauthorized")
                 return
@@ -627,6 +706,10 @@ def make_handler(
                     body = self._read_json_body()
                     applied = store.set_screen_idle_seconds(int(body.get("seconds", 60)))
                     self._send_json({"ok": True, "screen_idle_off_ms": applied})
+                elif parsed.path == "/api/gestures":
+                    body = self._read_json_body()
+                    applied = store.set_gesture_configuration(body)
+                    self._send_json({"ok": True, "gestures": applied})
                 elif parsed.path == "/telemetry/power":
                     body = self._read_json_body()
                     telemetry = getattr(store, "telemetry", None)
@@ -793,6 +876,13 @@ def _protected_paths() -> set[str]:
         "/telemetry/power/latest",
         "/telemetry/power.csv",
     }
+
+
+def _is_loopback_client(address: str) -> bool:
+    try:
+        return ipaddress.ip_address(address).is_loopback
+    except ValueError:
+        return False
 
 
 def _bridge_token() -> str:

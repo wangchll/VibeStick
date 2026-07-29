@@ -87,7 +87,7 @@ class ServerSecurityTests(unittest.TestCase):
                     headers={
                         **headers,
                         "X-Vibe-Stick-Firmware-Name": "vibestick",
-                        "X-Vibe-Stick-Firmware-Version": "0.2.20",
+                        "X-Vibe-Stick-Firmware-Version": "0.3.0",
                     },
                 )
                 accepted = connection.getresponse()
@@ -96,7 +96,7 @@ class ServerSecurityTests(unittest.TestCase):
 
             self.assertEqual(accepted.status, 200)
             self.assertTrue(payload["ok"])
-            self.assertEqual(payload["sample"]["firmware_version"], "0.2.20")
+            self.assertEqual(payload["sample"]["firmware_version"], "0.3.0")
 
     def test_loopback_host_does_not_require_token(self) -> None:
         self.assertFalse(app._host_requires_token("127.0.0.1"))
@@ -107,6 +107,12 @@ class ServerSecurityTests(unittest.TestCase):
         self.assertTrue(app._host_requires_token("0.0.0.0"))
         self.assertTrue(app._host_requires_token(""))
         self.assertTrue(app._host_requires_token("192.168.1.10"))
+
+    def test_management_api_client_must_be_loopback(self) -> None:
+        self.assertTrue(app._is_loopback_client("127.0.0.1"))
+        self.assertTrue(app._is_loopback_client("::1"))
+        self.assertFalse(app._is_loopback_client("192.168.1.20"))
+        self.assertFalse(app._is_loopback_client("not-an-address"))
 
     def test_placeholder_token_is_treated_as_missing(self) -> None:
         with mock.patch.dict(os.environ, {"VIBE_STICK_BRIDGE_TOKEN": "change-this-shared-token"}):

@@ -30,6 +30,7 @@ It owns:
 - Wi-Fi connection.
 - Polling `GET /state`.
 - Posting button events to `/event`.
+- Optional BMI270 spatial gestures: pressing the front and side buttons together arms a single-action window and consumes both button actions. Only then does firmware enable the 100 Hz accelerometer; it powers the sensor down after recognition, timeout, recording start, or feature disable. Inside the window, two taps, three taps, and continuous shaking are recognised from acceleration changes. The Bridge validates the global enable state again before injecting input. The menu-bar settings window owns window length, sensitivity, and per-gesture default, disabled, or validated custom Codex shortcuts.
 - Blue front-button controls: long press records push-to-talk audio; for 30 seconds after a successful recording, single click sends Return and double click stops the current Codex turn. Clicks outside that window are ignored by both firmware and Bridge.
 - Right-side `KEY2` control: GPIO 12 single/double click switches views and confirms/rejects a pending approval; a 700 ms long press asks the Bridge to clear the latest pasted voice draft.
 - Roxy animation selection from the same Codex state used by the dashboard: idle/offline, running, approval, done, and error.
@@ -62,7 +63,7 @@ Bridge state is stored under:
 
 ## Transport
 
-v0.2.20 uses HTTP over Wi-Fi.
+v0.3.0 uses HTTP over Wi-Fi.
 
 BLE is not part of the current mainline transport. USB is used for flashing and serial logs, not for runtime state transport.
 
@@ -94,7 +95,7 @@ Codex observation covers all user-started root conversations visible in local se
 
 The StickS3 home screen is dedicated to Codex status and quota.
 
-## v0.2.20 Limits
+## v0.3.0 Limits
 
 - No Apple-notarized DMG; the release provides a signed universal App in a ZIP archive.
 - No signed firmware release artifact.

@@ -5,8 +5,8 @@ MODE="${1:-run}"
 APP_NAME="VibeStickSetup"
 BUNDLE_ID="com.vibestick.setup"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${VIBE_STICK_APP_VERSION:-0.2.20}"
-APP_BUILD_VERSION="${VIBE_STICK_APP_BUILD_VERSION:-16}"
+APP_VERSION="${VIBE_STICK_APP_VERSION:-0.3.0}"
+APP_BUILD_VERSION="${VIBE_STICK_APP_BUILD_VERSION:-29}"
 
 if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VIBE_STICK_APP_VERSION must use semantic version format, for example 0.1.7." >&2
@@ -91,6 +91,9 @@ cp "$ROOT_DIR/bridge/pyproject.toml" "$PROJECT_TEMPLATE/bridge/pyproject.toml"
 /usr/bin/rsync -a \
   "$ROOT_DIR/firmware/sticks3/src" \
   "$ROOT_DIR/firmware/sticks3/generated" \
+  "$PROJECT_TEMPLATE/firmware/sticks3/"
+/usr/bin/rsync -a \
+  "$ROOT_DIR/firmware/sticks3/components" \
   "$PROJECT_TEMPLATE/firmware/sticks3/"
 cp \
   "$ROOT_DIR/firmware/sticks3/CMakeLists.txt" \

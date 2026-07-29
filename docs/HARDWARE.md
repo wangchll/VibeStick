@@ -2,7 +2,7 @@
 
 ## Supported Device
 
-VibeStick v0.2.20 targets M5Stack StickS3.
+VibeStick v0.3.0 targets M5Stack StickS3.
 
 The project does not currently claim support for other devices because the UI layout, front button behavior, microphone path, speaker path, PMIC battery reads, and screen size are all written around StickS3.
 
@@ -17,6 +17,9 @@ The project does not currently claim support for other devices because the UI la
 - Wi-Fi: HTTP communication with the Mac bridge on a 2.4 GHz Wi-Fi network. StickS3 / ESP32-S3 does not support 5 GHz Wi-Fi.
 - USB-C: flashing and serial monitor.
 - Battery / USB power: local PMIC reads for the battery UI.
+- IMU: BMI270 direct-motion recognition. Both motion sensors remain disabled outside a recognition window. Pressing the blue front button and large side button together powers the accelerometer at 100 Hz, opens one recognition window, and consumes that chord; recognition, timeout, recording start, or feature disable powers it down again. Inside the window, the supported actions are two firm enclosure taps, three firm enclosure taps, and a fast continuous shake. The gyroscope is not enabled by this feature.
+
+VibeStick reads BMI270 acceleration at 100 Hz and derives tap and shake events from short acceleration changes. This does not depend on a left/right wrist orientation.
 - Deep sleep: after five minutes of battery-powered inactivity; the front button wakes the device through ESP32-S3 GPIO11. USB power and charging block deep sleep.
 - Runtime power management: dynamic 40–240 MHz CPU frequency, with automatic light sleep only after the LCD is fully off.
 

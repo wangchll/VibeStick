@@ -1,6 +1,6 @@
 # Protocol
 
-VibeStick v0.2.20 uses HTTP over Wi-Fi between the StickS3 firmware and the local Mac bridge.
+VibeStick v0.3.0 uses HTTP over Wi-Fi between the StickS3 firmware and the local Mac bridge.
 
 Default bridge URL:
 
@@ -14,7 +14,7 @@ Firmware requests include:
 
 ```text
 X-Vibe-Stick-Firmware-Name: vibestick
-X-Vibe-Stick-Firmware-Version: 0.2.20
+X-Vibe-Stick-Firmware-Version: 0.3.0
 X-Vibe-Stick-Firmware-Transport: HTTP
 X-Vibe-Stick-Firmware-Build-Date: <compile date>
 ```
@@ -83,7 +83,7 @@ Returns the current bridge state:
     "message": ""
   },
   "bridge_name": "vibestick-bridge",
-  "bridge_version": "0.2.20"
+  "bridge_version": "0.3.0"
 }
 ```
 
@@ -101,7 +101,7 @@ Returns bridge health metadata:
 {
   "ok": true,
   "bridge_name": "vibestick-bridge",
-  "bridge_version": "0.2.20"
+  "bridge_version": "0.3.0"
 }
 ```
 
@@ -128,6 +128,31 @@ After a recording finishes successfully, the Bridge accepts button actions for 3
 Manual `DONE`, `ERROR`, and `APPROVAL` statuses produce alert fields for local testing.
 
 The right-side button sends `button_approval_confirm` on a single click and `button_approval_cancel` on a double click. The Bridge acts only while a confirmed approval is pending: confirm activates Codex and sends Return; cancel activates Codex and sends Escape. Without a pending approval, these host actions are ignored while the firmware still changes dashboard/Roxy view.
+
+When spatial gestures are enabled, pressing the front and side buttons together opens one recognition window. The chord is consumed, so it does not trigger either button's normal action. The BMI270 recognises direct device motion only inside that window and ignores activation while voice recording is active:
+
+```json
+{"event":"gesture","source":"sticks3","gesture":"double_tap"}
+```
+
+Supported values are `double_tap`, `triple_tap`, and `shake`. The Bridge ignores all gesture events while the persisted `gestures_enabled` setting is false. Defaults mirror this Mac's Codex keybindings: double tap switches Planning mode (`Control-Shift-1`), triple tap switches Fast mode (`Control-Shift-@`), and shake creates a new task (`Command-N`). Each mapping remains editable in the menu-bar settings window.
+
+`POST /api/gestures` is the loopback management endpoint used by the menu-bar settings window. It persists the global switch, a 2–8 second recognition window, sensitivity, and mappings:
+
+```json
+{
+  "enabled": true,
+    "window_ms": 4000,
+  "sensitivity": "conservative",
+  "mappings": {
+    "double_tap": "default",
+    "triple_tap": "default",
+    "shake": "shortcut:command+n"
+  }
+}
+```
+
+Mappings accept only `default`, `disabled`, or a validated `shortcut:` value. Custom shortcuts activate Codex and send one key with any combination of Command, Control, Option, and Shift; they cannot execute scripts or shell commands.
 
 ## POST /quota/refresh
 

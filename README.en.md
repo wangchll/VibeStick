@@ -4,7 +4,7 @@
 
 ![VibeStick voice-input flow showing StickS3 recording states and the Mac HUD](assets/brand/voice-input-preview.png)
 
-VibeStick turns an M5Stack StickS3 into a Codex desktop companion with task status, active-conversation count, the current usage window and reset countdown, alerts, and speech transcription into your Mac.
+VibeStick turns an M5Stack StickS3 into a Codex desktop companion with task status, active-conversation count, the current usage window and reset countdown, alerts, speech transcription, and BMI270 spatial gestures for Codex controls.
 
 VibeStick targets M5Stack StickS3 hardware and is not an official M5Stack project.
 
@@ -19,7 +19,7 @@ You need:
 - A 2.4 GHz Wi-Fi name and password.
 - An optional ASR API key. [SiliconFlow](https://cloud.siliconflow.cn) is recommended; other OpenAI-compatible services are supported.
 
-The current source version is **v0.2.20**. The previously published package remains available from the [v0.1.7 release](https://github.com/deanxizian/VibeStick/releases/tag/v0.1.7). Build the current source when you need WeChat Input streaming, offline Whisper, and approval controls. The installer supports Apple Silicon and Intel but is not Apple-notarized yet; if macOS blocks the first launch, right-click the app and choose Open.
+The current source version is **v0.3.0**. The previously published package remains available from the [v0.1.7 release](https://github.com/deanxizian/VibeStick/releases/tag/v0.1.7). Build the current source when you need spatial gestures, WeChat Input streaming, offline Whisper, and approval controls. The installer supports Apple Silicon and Intel but is not Apple-notarized yet; if macOS blocks the first launch, right-click the app and choose Open.
 
 You can also build it from source:
 
@@ -46,10 +46,26 @@ The first installation downloads about 1 GB of ESP-IDF components. Keep the Mac 
 - For 30 seconds after a successful recording, single-click the blue button to send the current draft.
 - For 30 seconds after a successful recording, double-click the blue button to pause the current Codex task.
 - Single-click the large right-side button to show Roxy and allow a real pending Codex approval. Double-click it to return to the dashboard and reject a pending approval.
+- After enabling Spatial Gestures in the menu bar, press the front and side buttons together to open a recognition window. StickS3 plays a cue and displays `识别中` until recognition ends.
+- Inside that window, tap StickS3 twice to toggle Planning mode, tap three times to toggle Fast mode, or shake it continuously to create a new task. Every mapping can be changed or disabled in Spatial Gesture Settings.
 - Alert volume is adjustable from 0–100% in the installer and takes effect after reinstalling and reflashing.
 - Reopen the latest installer to change Wi-Fi, alert-volume, or voice settings, or to reflash. The installer is the supported path for both Mac updates and firmware flashing.
 
 Bridge and HUD start automatically at login. The Mac and StickS3 must be on the same LAN.
+
+## Spatial gestures
+
+Spatial gestures are off by default. To prevent accidental triggers while walking or carrying StickS3, the BMI270 does not recognise motion continuously. Pressing the front and side buttons together opens one configurable 3–6 second window, and each window executes at most one action.
+
+| Gesture | Default Codex action | Default macOS shortcut |
+| --- | --- | --- |
+| Tap StickS3 twice | Toggle Planning mode | `Control+Shift+1` |
+| Tap StickS3 three times | Toggle Fast mode | `Control+Shift+@` |
+| Shake StickS3 continuously | Create a new task | `Command+N` |
+
+The first two defaults mirror this Mac's `~/.codex/keybindings.json`. The settings window accepts `default`, `disabled`, or a custom macOS shortcut made from Command, Control, Option, and Shift.
+
+For power efficiency, both BMI270 motion sensors remain disabled at idle. The chord enables only the 100 Hz accelerometer; recognition, timeout, recording start, or disabling the feature powers it down again. None of the three current gestures requires the gyroscope.
 
 ## Troubleshooting
 
@@ -58,6 +74,8 @@ Bridge and HUD start automatically at login. The Mac and StickS3 must be on the 
 - **ASR API test fails**: check the API URL, key, model, and network.
 - **Transcription works but paste does not**: grant Microphone and Accessibility access in System Settings → Privacy & Security.
 - **WeChat Input does not appear**: select WeChat Input as the current input source, keep focus in the destination text field, and install `BlackHole 2ch`; see [WeChat Input](docs/WECHAT_INPUT.md).
+- **Spatial gestures do not respond**: enable them in the menu bar, press the front and side buttons together, then perform the gesture only after the cue and `识别中` status appear.
+- **Spatial Gesture Settings does not open**: confirm that the menu-bar app came from the latest installer; the current window is presented after the menu closes and brought to the front.
 - **Installation was interrupted**: keep the cable connected and run the installer again.
 
 ## Uninstall Mac services

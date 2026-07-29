@@ -7,6 +7,17 @@ import time
 from enum import StrEnum
 from typing import Any
 
+GESTURE_NAMES = ("double_tap", "triple_tap", "shake")
+DEFAULT_GESTURE_MAPPINGS = {name: "default" for name in GESTURE_NAMES}
+DEFAULT_GESTURE_SHORTCUTS = {
+    # These first two values mirror ~/.codex/keybindings.json on the host
+    # used to build this installer.  They are deliberately macOS Control
+    # shortcuts (not Windows Ctrl aliases).
+    "double_tap": "control+shift+1",
+    "triple_tap": "control+shift+@",
+    "shake": "command+n",
+}
+
 
 class AgentStatus(StrEnum):
     IDLE = "IDLE"
@@ -74,12 +85,20 @@ class VibeStickState:
     codex: CodexState
     alert: AlertState
     screen_idle_off_ms: int = 60
+    gestures_enabled: bool = False
+    gesture_window_ms: int = 4000
+    gesture_sensitivity: str = "conservative"
+    gesture_mappings: dict[str, str] | None = None
 
     def to_jsonable(self) -> dict[str, Any]:
         data = asdict(self)
         data["battery"] = None
         data["active_provider"] = "codex"
         data["screen_idle_off_ms"] = self.screen_idle_off_ms
+        data["gestures_enabled"] = self.gestures_enabled
+        data["gesture_window_ms"] = self.gesture_window_ms
+        data["gesture_sensitivity"] = self.gesture_sensitivity
+        data["gesture_mappings"] = dict(self.gesture_mappings or DEFAULT_GESTURE_MAPPINGS)
         data["provider"]["id"] = "codex"
         data["provider"]["display_name"] = "Codex"
         data["provider"]["project"] = _bounded_utf8(self.provider.project, 36)
@@ -155,6 +174,10 @@ def state_from_dict(data: object) -> VibeStickState:
             message=str(alert_data.get("message") or ""),
         ),
         screen_idle_off_ms=_clamp_seconds(data.get("screen_idle_off_ms")),
+        gestures_enabled=bool(data.get("gestures_enabled", False)),
+        gesture_window_ms=_clamp_gesture_window(data.get("gesture_window_ms")),
+        gesture_sensitivity=_gesture_sensitivity(data.get("gesture_sensitivity")),
+        gesture_mappings=_gesture_mappings(data.get("gesture_mappings")),
     )
 
 
@@ -244,6 +267,29 @@ def _positive_int_or_none(value: object) -> int | None:
     return number if number > 0 else None
 
 
+def _clamp_gesture_window(value: object) -> int:
+    if value is None or isinstance(value, bool):
+        return 4000
+    try:
+        number = int(value)
+    except (OverflowError, TypeError, ValueError):
+        return 4000
+    return max(2000, min(8000, number))
+
+
+def _gesture_sensitivity(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in {"conservative", "standard", "sensitive"} else "conservative"
+
+
+def _gesture_mappings(value: object) -> dict[str, str]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        name: str(source.get(name) or "default")[:80]
+        for name in GESTURE_NAMES
+    }
+
+
 def _active_conversation_count(value: object) -> int:
     if value is None or isinstance(value, bool):
         return 0
@@ -304,4 +350,8 @@ def default_state() -> VibeStickState:
         codex=codex,
         alert=AlertState(event_id="", type=AlertType.NONE, message=""),
         screen_idle_off_ms=60,
+        gestures_enabled=False,
+        gesture_window_ms=4000,
+        gesture_sensitivity="conservative",
+        gesture_mappings=dict(DEFAULT_GESTURE_MAPPINGS),
     )

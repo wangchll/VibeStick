@@ -13,6 +13,17 @@ class PasteResult:
 
 
 class MacPasteInjector:
+    _KEY_CODES = {
+        "return": 36, "enter": 36, "escape": 53, "esc": 53, "space": 49,
+        "tab": 48, "delete": 51, "backspace": 51, "left": 123, "right": 124,
+        "down": 125, "up": 126, "home": 115, "end": 119,
+    }
+    _MODIFIERS = {
+        "cmd": "command down", "command": "command down",
+        "ctrl": "control down", "control": "control down",
+        "option": "option down", "alt": "option down", "shift": "shift down",
+    }
+
     def press_enter(self) -> PasteResult:
         return self._run_osascript(
             ['tell application "System Events" to key code 36'],
@@ -60,6 +71,59 @@ class MacPasteInjector:
             53,
             success_message="Sent Escape to the Codex permission prompt",
         )
+
+    def send_codex_shortcut(self, shortcut: str) -> PasteResult:
+        try:
+            key, modifiers = self._parse_shortcut(shortcut)
+        except ValueError as exc:
+            return PasteResult(False, str(exc))
+        using = ""
+        if modifiers:
+            using = " using {" + ", ".join(modifiers) + "}"
+        if key in self._KEY_CODES:
+            command = f'key code {self._KEY_CODES[key]}{using}'
+        else:
+            escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+            command = f'keystroke "{escaped}"{using}'
+        return self._run_osascript(
+            [
+                'tell application id "com.openai.codex" to activate',
+                "delay 0.12",
+                f'tell application "System Events" to {command}',
+            ],
+            success_message=f"Sent Codex shortcut {shortcut}",
+        )
+
+    @classmethod
+    def validate_shortcut(cls, shortcut: str) -> str:
+        key, modifiers = cls._parse_shortcut(shortcut)
+        canonical_modifiers = []
+        reverse = {
+            "command down": "command", "control down": "control",
+            "option down": "option", "shift down": "shift",
+        }
+        for modifier in modifiers:
+            canonical_modifiers.append(reverse[modifier])
+        return "+".join([*canonical_modifiers, key])
+
+    @classmethod
+    def _parse_shortcut(cls, shortcut: str) -> tuple[str, list[str]]:
+        parts = [part.strip().lower() for part in shortcut.split("+") if part.strip()]
+        if not parts:
+            raise ValueError("Shortcut cannot be empty")
+        key = parts[-1]
+        if key not in cls._KEY_CODES and not (len(key) == 1 and key.isprintable() and key.isascii()):
+            raise ValueError("Unsupported shortcut key")
+        modifiers: list[str] = []
+        for part in parts[:-1]:
+            modifier = cls._MODIFIERS.get(part)
+            if modifier is None:
+                raise ValueError("Unsupported shortcut modifier")
+            if modifier not in modifiers:
+                modifiers.append(modifier)
+        if not modifiers and len(key) == 1:
+            raise ValueError("Single-character shortcuts require a modifier")
+        return key, modifiers
 
     def _send_codex_permission_key(
         self,

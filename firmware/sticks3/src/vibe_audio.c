@@ -309,6 +309,15 @@ static const sound_segment_t *sound_segments_for(agent_sound_t sound, size_t *co
         {.freq_hz = 0, .duration_ms = 50},
         {.freq_hz = 740, .duration_ms = 140},
     };
+    static const sound_segment_t gesture_armed[] = {
+        {.freq_hz = 660, .duration_ms = 60},
+        {.freq_hz = 0, .duration_ms = 35},
+        {.freq_hz = 990, .duration_ms = 100},
+    };
+    static const sound_segment_t gesture_recognized[] = {
+        {.freq_hz = 1047, .duration_ms = 80},
+        {.freq_hz = 1319, .duration_ms = 100},
+    };
 
     switch (sound) {
     case VIBE_STICK_SOUND_DONE:
@@ -320,6 +329,12 @@ static const sound_segment_t *sound_segments_for(agent_sound_t sound, size_t *co
     case VIBE_STICK_SOUND_APPROVAL:
         *count = sizeof(approval) / sizeof(approval[0]);
         return approval;
+    case VIBE_STICK_SOUND_GESTURE_ARMED:
+        *count = sizeof(gesture_armed) / sizeof(gesture_armed[0]);
+        return gesture_armed;
+    case VIBE_STICK_SOUND_GESTURE_RECOGNIZED:
+        *count = sizeof(gesture_recognized) / sizeof(gesture_recognized[0]);
+        return gesture_recognized;
     default:
         *count = 0;
         return NULL;

@@ -1,12 +1,13 @@
 # States And Sounds
 
-VibeStick v0.2.20 plays sounds only for key agent status changes on the home screen. Recording states and WeChat virtual-audio streaming do not play sounds.
+VibeStick v0.3.0 plays sounds for key agent status changes, when a spatial-gesture window opens, and when a gesture is recognised. Recording states and WeChat virtual-audio streaming do not play sounds.
 
 | State | Trigger | Sound |
 | --- | --- | --- |
 | Completed / 完成 | Any user-started root Codex conversation finishes | 880 Hz 80 ms, 40 ms gap, 1320 Hz 120 ms |
 | Error / 报错 | Codex reports `ERROR`, `FAILED`, or `FAILURE` | 240 Hz 100 ms, 60 ms gap, repeated 3 times |
 | Waiting for approval / 等待审批 | A user-reviewed Codex `require_escalated` request remains pending after a 1.5-second confirmation delay | 740 Hz 90 ms, 50 ms gap, 1040 Hz 90 ms, 50 ms gap, 740 Hz 140 ms |
+| Gesture recognition / 识别中 | Front button and side button pressed together | 660 Hz 60 ms, 35 ms gap, 990 Hz 100 ms |
 
 ## No Sound
 

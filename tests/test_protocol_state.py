@@ -5,6 +5,15 @@ from vibe_stick.protocol.state import AgentStatus, default_state, state_from_dic
 
 
 class ProtocolStateTests(unittest.TestCase):
+    def test_gesture_settings_default_off_and_are_bounded(self) -> None:
+        self.assertFalse(default_state().gestures_enabled)
+        state = state_from_dict({"gestures_enabled": True, "gesture_window_ms": 99999})
+        self.assertTrue(state.gestures_enabled)
+        self.assertEqual(state.gesture_window_ms, 8000)
+        self.assertEqual(state.to_jsonable()["gesture_window_ms"], 8000)
+        self.assertEqual(state.gesture_sensitivity, "conservative")
+        self.assertEqual(state.gesture_mappings["double_tap"], "default")
+
     def test_zero_screen_idle_timeout_means_never(self) -> None:
         state = state_from_dict({"screen_idle_off_ms": 0})
         self.assertEqual(state.screen_idle_off_ms, 0)
