@@ -27,10 +27,13 @@ DESKTOP_LOGS_DIR = Path.home() / "Library/Logs/com.openai.codex"
 TAIL_BYTES = 1_500_000
 MAX_SESSION_FILES = 40
 RUNNING_ACTIVITY_WINDOW = timedelta(minutes=4)
+COMPLETION_WATCH_WINDOW = timedelta(hours=2)
 ALERT_ACTIVITY_WINDOW = timedelta(minutes=5)
 APPROVAL_CONFIRMATION_DELAY = timedelta(seconds=1.5)
 QUOTA_STALE_AFTER = timedelta(minutes=30)
 TURN_TERMINAL_TYPES = {
+    "agent_error",
+    "error",
     "task_complete",
     "turn_aborted",
     "turn_cancelled",
@@ -392,15 +395,19 @@ def _latest_summary(
 
 
 def _summary_has_active_turn(summary: _CodexSessionSummary, now: datetime) -> bool:
+    if summary.turn_lifecycle is not None:
+        lifecycle_timestamp, lifecycle_type, _ = summary.turn_lifecycle
+        return (
+            lifecycle_type == "task_started"
+            and now - lifecycle_timestamp <= COMPLETION_WATCH_WINDOW
+        )
+
     latest_event = summary.latest_event
     if (
         latest_event is None
         or now - latest_event[0] > RUNNING_ACTIVITY_WINDOW
     ):
         return False
-
-    if summary.turn_lifecycle is not None:
-        return summary.turn_lifecycle[1] == "task_started"
 
     # A long-running conversation can append enough tool output to push its
     # task_started event outside the bounded JSONL tail. Apply the recent-

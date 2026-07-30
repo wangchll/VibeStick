@@ -28,7 +28,6 @@ public final class DeploymentCoordinator: @unchecked Sendable {
     public func deploy(
         configuration: SetupConfiguration,
         device: SerialDevice,
-        idfExportPath: String,
         onStep: @escaping @Sendable (DeploymentPhase, StepState) async -> Void,
         onOutput: @escaping @Sendable (String) -> Void
     ) async throws -> SetupConfiguration {
@@ -43,13 +42,13 @@ public final class DeploymentCoordinator: @unchecked Sendable {
             let secrets = try configurationStore.redactionSecrets(for: configuration)
             await onStep(currentPhase, .succeeded)
 
-            currentPhase = .buildFirmware
+            currentPhase = .prepareFirmware
             try await run(
                 command: shellCommand(
-                    script: "scripts/run-idf.sh",
-                    arguments: ["--export", idfExportPath, "build"],
-                    workingDirectory: projectRoot.appendingPathComponent("firmware/sticks3"),
-                    displayName: "构建固件"
+                    script: "scripts/verify-release-assets.sh",
+                    arguments: ["--app-bundle", Bundle.main.bundleURL.path],
+                    workingDirectory: projectRoot,
+                    displayName: "验证通用固件"
                 ),
                 phase: currentPhase,
                 secrets: secrets,
@@ -75,14 +74,14 @@ public final class DeploymentCoordinator: @unchecked Sendable {
             guard serialDiscovery.discover().contains(device) else {
                 throw SetupCoreError.deviceChanged
             }
-            guard try await probeInstallMode(device: device, idfExportPath: idfExportPath) else {
+            guard try await probeInstallMode(device: device) else {
                 throw SetupCoreError.deviceNotInInstallMode
             }
             try await run(
                 command: shellCommand(
-                    script: "scripts/run-idf.sh",
-                    arguments: ["--export", idfExportPath, "-p", device.calloutPath, "flash"],
-                    workingDirectory: projectRoot.appendingPathComponent("firmware/sticks3"),
+                    script: "scripts/flash-prebuilt.sh",
+                    arguments: ["--port", device.calloutPath],
+                    workingDirectory: projectRoot,
                     displayName: "烧录 StickS3"
                 ),
                 phase: currentPhase,
@@ -94,7 +93,6 @@ public final class DeploymentCoordinator: @unchecked Sendable {
             currentPhase = .waitForDevice
             try await startAndWaitForDevice(
                 device: device,
-                idfExportPath: idfExportPath,
                 deploymentNonce: deploymentNonce,
                 phase: currentPhase,
                 secrets: secrets,
@@ -145,10 +143,7 @@ public final class DeploymentCoordinator: @unchecked Sendable {
     /// Performs a read-only ROM sync against the exact USB device selected by
     /// the user. `false` means the StickS3 is present but running normal
     /// firmware; identity, security, and transport failures are thrown.
-    public func probeInstallMode(
-        device: SerialDevice,
-        idfExportPath: String
-    ) async throws -> Bool {
+    public func probeInstallMode(device: SerialDevice) async throws -> Bool {
         guard let serialNumber = device.serialNumber,
               !normalizedSerialNumber(serialNumber).isEmpty,
               device.vendorID == 0x303A,
@@ -161,7 +156,6 @@ public final class DeploymentCoordinator: @unchecked Sendable {
         let command = shellCommand(
             script: "scripts/probe-rom-mode.sh",
             arguments: [
-                "--export", idfExportPath,
                 "--port", device.calloutPath,
                 "--serial", serialNumber,
             ],
@@ -181,17 +175,6 @@ public final class DeploymentCoordinator: @unchecked Sendable {
         default:
             throw SetupCoreError.deviceInstallModeProbeFailed(result.exitCode)
         }
-    }
-
-    public func installToolchain(onOutput: @escaping @Sendable (String) -> Void) async throws {
-        let command = shellCommand(
-            script: "scripts/install-esp-idf.sh",
-            arguments: [],
-            workingDirectory: projectRoot,
-            displayName: "安装 ESP-IDF 5.5.1"
-        )
-        let result = try await runner.run(command, redacting: [], onOutput: onOutput)
-        guard result.exitCode == 0 else { throw SetupCoreError.commandFailed(command.displayName, result.exitCode) }
     }
 
     public func installPythonRuntime(onOutput: @escaping @Sendable (String) -> Void) async throws {
@@ -245,7 +228,6 @@ public final class DeploymentCoordinator: @unchecked Sendable {
 
     private func startAndWaitForDevice(
         device: SerialDevice,
-        idfExportPath: String,
         deploymentNonce: String,
         phase: DeploymentPhase,
         secrets: [String],
@@ -256,7 +238,7 @@ public final class DeploymentCoordinator: @unchecked Sendable {
 
         let startCommand = shellCommand(
             script: "scripts/start-device.sh",
-            arguments: ["--export", idfExportPath, "--port", device.calloutPath],
+            arguments: ["--port", device.calloutPath],
             workingDirectory: projectRoot.appendingPathComponent("firmware/sticks3"),
             displayName: "启动 StickS3"
         )

@@ -251,17 +251,23 @@ class BridgeStateStore:
                 self._set_codex_status(str(requested_status), str(event.get("message") or ""))
                 self._manual_status_until = time.monotonic() + MANUAL_STATUS_SECONDS
             elif event_name == "button_short":
-                # Front button "send": re-press Enter to submit the text that
-                # was just pasted/transcribed. This must work whenever the last
-                # recording actually produced pasted text -- NOT only within a
-                # fixed 30s window, otherwise a slow reviewer (or a screen that
-                # was asleep) could never send. We still require a successful
-                # pasted/transcribed session so we don't fire Enter at random.
-                if self._last_session_pasted_locked():
+                # A pasted voice draft keeps priority so a delayed single click
+                # still submits it. With no draft, the same click is useful in
+                # standby: raise Codex and move keyboard focus to its composer.
+                # The aggregate RUNNING state may belong to another root task,
+                # so it cannot tell us whether the visible composer is idle.
+                if self._approval_pending_locked():
+                    self._log_ignored_button_action("focus_composer", "approval is pending")
+                elif self._last_session_pasted_locked():
                     self._state.alert = AlertState(event_id="", type=AlertType.NONE, message="")
-                    self._log_button_action("send", self.input_injector.press_enter())
+                    result = self.input_injector.press_enter()
+                    self._log_button_action("send", result)
+                    if result.success:
+                        self._last_session_pasted = False
                 else:
-                    self._log_ignored_button_action("send")
+                    self._log_button_action(
+                        "focus_composer", self.input_injector.focus_codex_composer()
+                    )
             elif event_name == "button_double":
                 if self._post_recording_action_available_locked():
                     self._log_button_action("pause", self.input_injector.pause_current_codex_task())

@@ -1,6 +1,6 @@
 # Third-Party Audit
 
-This audit documents the v0.1.5 repository state after cleanup.
+This audit documents the v0.3.11 self-contained release payload.
 
 | Project / file / dependency | Source | Current use | License status | Risk | Recommendation |
 | --- | --- | --- | --- | --- | --- |
@@ -12,8 +12,10 @@ This audit documents the v0.1.5 repository state after cleanup.
 | `firmware/sticks3/generated/vibe_stick_ui_assets.c/.h` | Generated from project-owned PNG icons | LVGL image descriptors for the Codex icon | MIT under this repository | Low | Keep. |
 | `firmware/sticks3/generated/vibe_stick_cn_16.c` | Generated from Source Han Sans K Regular | LVGL Chinese glyph subset for StickS3 UI | Source font is SIL Open Font License 1.1, copyright Adobe 2014-2021 | Medium | Keep with NOTICE attribution. Do not use the reserved Source name as an VibeStick brand. |
 | `firmware/sticks3/src/idf_component.yml` dependencies: `espressif/button`, `espressif/esp_codec_dev`, `lvgl/lvgl` | ESP Component Registry | Build-time firmware dependencies | External open-source components, not vendored after cleanup | Low | Keep dependency manifest and lock file. Review component licenses before binary release. |
-| ESP-IDF framework | Espressif | Firmware framework | External SDK, not vendored | Low | Keep as build prerequisite. |
-| `astral-sh/python-build-standalone` CPython runtime | GitHub release `20260510`, downloaded only when no compatible Python exists | User-local Mac Bridge runtime | CPython and bundled libraries retain their upstream licenses; build project is MPL-2.0 | Medium | Keep version and SHA-256 pinned. Preserve bundled license files and review notices before binary redistribution. |
+| ESP-IDF framework | Espressif | Firmware framework | External SDK, used only on the release machine | Low | Keep as release build prerequisite. |
+| `release/tools/esptool/**` | Espressif esptool v4.11.0 standalone binaries | Consumer-side ESP32-S3 probing and USB flashing | GPL-2.0; full license is bundled at `release/tools/esptool/LICENSE` | Medium | Keep both architectures and pinned SHA-256 values. |
+| `tools/nvs/esp_idf_nvs_partition_gen/` | Espressif `esp_idf_nvs_partition_gen` v0.1.9 | Generate the per-install `vibe_cfg` image | Apache-2.0; SPDX copyright/license header retained | Low | Keep the unencrypted path dependency-free and retain upstream attribution. |
+| `release/runtime/cpython-3.12.13-*.tar.gz` | `astral-sh/python-build-standalone` release `20260510` | Embedded, user-local Mac Bridge runtime | CPython and bundled libraries retain upstream licenses inside each archive; build project is MPL-2.0 | Medium | Keep both architectures and pinned SHA-256 values; audit archive notices before each version update. |
 | OpenAI-compatible ASR API | Optional external service | Optional speech-to-text when configured | Service API, no source vendored | Medium | Document that audio leaves the Mac when a cloud ASR service is configured. Do not commit API keys. |
 | Local Codex session files | User-local Codex data | Quota/status observation from `~/.codex/sessions/**/*.jsonl` | User-local data, not vendored | Medium | Keep local-only. Do not upload or commit session data. |
 | Historical VoiceStick / StickS3VoiceKit / VoiceStickTrial directories outside this repository | Local historical reference directories in the parent workspace | Not part of VibeStick repository | Source/license uncertain from local copy | High | Do not copy into VibeStick. Do not publish as part of this repository. |
@@ -23,6 +25,6 @@ This audit documents the v0.1.5 repository state after cleanup.
 
 ## Summary
 
-No third-party source code or brand assets are intentionally vendored in this repository after cleanup, except the generated Chinese LVGL glyph subset derived from Source Han Sans K under the SIL Open Font License 1.1. Build-time firmware dependencies are resolved through the ESP-IDF component manager and are not committed as vendored source.
+The self-contained installer intentionally vendors the two official esptool executables, two CPython runtime archives, and Espressif's NVS generator. Their versions, hashes, and license locations are documented above. The generated Chinese LVGL glyph subset remains derived from Source Han Sans K under the SIL Open Font License 1.1. Firmware component dependencies are resolved on the release machine through the ESP-IDF component manager.
 
 Before a public binary release, review the exact ESP-IDF/component licenses included in the firmware image and ensure the Source Han Sans K attribution remains in NOTICE.

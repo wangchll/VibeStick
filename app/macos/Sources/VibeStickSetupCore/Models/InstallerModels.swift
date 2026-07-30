@@ -49,8 +49,6 @@ public struct NetworkAddress: Identifiable, Hashable, Sendable {
 public struct Prerequisite: Identifiable, Equatable, Sendable {
     public enum Kind: String, Sendable {
         case python
-        case swift
-        case espIDF
         case bridge
     }
 
@@ -73,18 +71,14 @@ public struct SystemSnapshot: Equatable, Sendable {
     public let networkAddresses: [NetworkAddress]
     public let serialDevices: [SerialDevice]
     public let prerequisites: [Prerequisite]
-    public let idfExportPath: String?
-
     public init(
         networkAddresses: [NetworkAddress] = [],
         serialDevices: [SerialDevice] = [],
-        prerequisites: [Prerequisite] = [],
-        idfExportPath: String? = nil
+        prerequisites: [Prerequisite] = []
     ) {
         self.networkAddresses = networkAddresses
         self.serialDevices = serialDevices
         self.prerequisites = prerequisites
-        self.idfExportPath = idfExportPath
     }
 
     public static let empty = SystemSnapshot()
@@ -92,7 +86,7 @@ public struct SystemSnapshot: Equatable, Sendable {
 
 public enum DeploymentPhase: String, CaseIterable, Identifiable, Sendable {
     case saveConfiguration
-    case buildFirmware
+    case prepareFirmware
     case installBridge
     case flashFirmware
     case waitForDevice
@@ -104,7 +98,7 @@ public enum DeploymentPhase: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .saveConfiguration: "保存配置"
         case .installBridge: "安装 Mac 服务"
-        case .buildFirmware: "构建固件"
+        case .prepareFirmware: "验证通用固件"
         case .flashFirmware: "烧录 StickS3"
         case .waitForDevice: "等待设备联网"
         case .verify: "运行诊断"

@@ -22,23 +22,27 @@ VibeStick is an early-preview hobby project. Security-relevant areas:
 - The current transport is plain HTTP. The shared token authorizes protected requests,
   but it is visible to a network observer and does not prevent replay. It is not a substitute
   for TLS or authenticated nonce/HMAC transport on a hostile network.
-- Keep real secrets in the gitignored `.env` and
-  `firmware/sticks3/include/vibe_stick_secrets.h` — never commit them.
+- Keep real secrets in the gitignored `.env`, macOS login Keychain, and
+  `firmware/sticks3/include/vibe_stick_secrets.h` — never commit them. The header is now only a
+  private installer persistence format; its Wi-Fi/token values are converted into a temporary NVS
+  image and are not compiled into the universal application firmware.
 - Setup and install restrict local secret files to the current user. Do not weaken those file
   permissions or place the repository under a directory readable by other accounts.
-- The developer-preview macOS setup app runs firmware and Bridge scripts from its embedded,
-  versioned project template. Only use an installer build you trust. It rejects symlink secret destinations,
+- The macOS setup app runs fixed Bridge and flashing scripts from its embedded,
+  versioned project template. Only use an installer build you trust. It verifies release hashes,
+  rejects symlink secret destinations,
   writes configuration atomically with mode `0600`, keeps an auxiliary copy in the user's
   macOS login Keychain, bounds technical logs, and redacts managed credentials. The local
   ad-hoc-signed build deliberately avoids the entitlement-only Data Protection backend. Its optional
-  user-local Python runtime is pinned to a specific release and SHA-256 digest. A public build
-  still needs notarized app/helper distribution and signed, versioned firmware payloads.
+  user-local Python runtime and standalone esptool are pinned to specific releases and SHA-256
+  digests. Public packages must use Developer ID signing and notarization.
 - Local transcription and recording-hook command settings are intentionally executed through
   `/bin/sh`. Treat those `.env` values as trusted local code; do not copy commands from an
   untrusted source. Runtime byte limits and process-group cleanup reduce accidents but are not
   a sandbox.
-- The StickS3 firmware image contains its configured Wi-Fi password and Bridge token. If the
-  device is lost, rotate both credentials as appropriate and reflash it.
+- The dedicated StickS3 `vibe_cfg` NVS partition contains its configured Wi-Fi password and Bridge
+  token. The universal application firmware does not. If the device is lost, rotate both
+  credentials as appropriate and rewrite its configuration.
 - A normal `scripts/uninstall.sh` retains installed config, logs, transcripts, and recordings.
   Use `scripts/uninstall.sh --purge` when those local files should also be removed; repository
   `.env` and firmware secrets still require separate deletion.

@@ -1,0 +1,4 @@
+57d2cf0a2c9dcfeeb8cc307d36087b95a1d5b866371cc6efed977fd5919adfd9  tools/esptool/arm64/esptool
+de50fdfd4200ec8a1264717247a95cc541090a9ccb8335ca24714e875bed4dac  tools/esptool/x86_64/esptool
+5a30271f8d345a5b02b0c9e4e31e0f1e1455a8e4a04fba95cd9762472abc3b17  runtime/cpython-3.12.13-aarch64.tar.gz
+cd369e76973c3179bc578230d8615ab621968ed758c5e32f636eecef4ad79894  runtime/cpython-3.12.13-x86_64.tar.gz

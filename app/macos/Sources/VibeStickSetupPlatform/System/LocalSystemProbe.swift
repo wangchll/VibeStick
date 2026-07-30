@@ -24,8 +24,6 @@ public final class LocalSystemProbe: SystemProbing, @unchecked Sendable {
             let addresses = addressResolver.resolve()
             let devices = serialDiscovery.discover()
             let python = findPython()
-            let swift = findSwift()
-            let idf = findIDFExport()
             let bridgePlist = fileManager.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/LaunchAgents/com.vibestick.bridge.plist")
             let bridgeAvailable = fileManager.fileExists(atPath: bridgePlist.path)
@@ -35,21 +33,13 @@ public final class LocalSystemProbe: SystemProbing, @unchecked Sendable {
                 serialDevices: devices,
                 prerequisites: [
                     python,
-                    swift,
-                    Prerequisite(
-                        kind: .espIDF,
-                        available: idf != nil,
-                        detail: idf.map { "ESP-IDF \($0.version)" } ?? "未找到 ESP-IDF 5.5.x；首次安装约需下载 1 GB",
-                        path: idf?.url.path
-                    ),
                     Prerequisite(
                         kind: .bridge,
                         available: bridgeAvailable,
                         detail: bridgeAvailable ? "LaunchAgent 已安装" : "尚未安装 Mac Bridge",
                         path: bridgeAvailable ? bridgePlist.path : nil
                     ),
-                ],
-                idfExportPath: idf?.url.path
+                ]
             )
         }
         return await task.value
@@ -85,52 +75,6 @@ public final class LocalSystemProbe: SystemProbing, @unchecked Sendable {
         return fileManager.homeDirectoryForCurrentUser
             .appendingPathComponent(".local/share/vibestick/python/cpython-3.12-macos-\(architecture)-none/bin/python3.12")
             .path
-    }
-
-    private func findSwift() -> Prerequisite {
-        let lookup = run("/usr/bin/xcrun", ["--find", "swiftc"])
-        let path = lookup.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard lookup.status == 0, !path.isEmpty else {
-            return Prerequisite(kind: .swift, available: false, detail: "需要 Xcode Command Line Tools")
-        }
-        let version = run(path, ["--version"]).output.split(separator: "\n").first.map(String.init) ?? "swiftc"
-        return Prerequisite(kind: .swift, available: true, detail: version, path: path)
-    }
-
-    private func findIDFExport() -> (url: URL, version: String)? {
-        var candidates: [URL] = []
-        if let idfPath = ProcessInfo.processInfo.environment["IDF_PATH"] {
-            candidates.append(URL(fileURLWithPath: idfPath).appendingPathComponent("export.sh"))
-        }
-        candidates.append(fileManager.homeDirectoryForCurrentUser.appendingPathComponent("esp/vibestick-esp-idf-v5.5.1/export.sh"))
-        candidates.append(fileManager.homeDirectoryForCurrentUser.appendingPathComponent("esp/esp-idf/export.sh"))
-        for exportURL in candidates {
-            let root = exportURL.deletingLastPathComponent()
-            guard fileManager.isReadableFile(atPath: exportURL.path),
-                  let version = idfVersion(at: root),
-                  version.hasPrefix("5.5.") else { continue }
-            return (exportURL, "v\(version)")
-        }
-        return nil
-    }
-
-    private func idfVersion(at root: URL) -> String? {
-        let url = root.appendingPathComponent("tools/cmake/version.cmake")
-        guard let content = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        func component(_ name: String) -> String? {
-            let pattern = #"set\(IDF_VERSION_"# + name + #"\s+([0-9]+)\)"#
-            guard let expression = try? NSRegularExpression(pattern: pattern),
-                  let match = expression.firstMatch(
-                      in: content,
-                      range: NSRange(content.startIndex..., in: content)
-                  ),
-                  let range = Range(match.range(at: 1), in: content) else { return nil }
-            return String(content[range])
-        }
-        guard let major = component("MAJOR"),
-              let minor = component("MINOR"),
-              let patch = component("PATCH") else { return nil }
-        return "\(major).\(minor).\(patch)"
     }
 
     private func configuredPython() -> String? {

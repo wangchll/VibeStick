@@ -72,31 +72,8 @@ struct DeviceSetupStepView: View {
                     .padding(8)
                 }
 
-                if !store.swiftToolchainReady {
-                    GroupBox {
-                        HStack(spacing: 12) {
-                            Image(systemName: "shippingbox.fill")
-                                .foregroundStyle(.orange)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("还需要一个 Apple 系统组件")
-                                    .fontWeight(.medium)
-                                Text("点击准备后，按 macOS 弹窗完成安装；安装器会自动重新检查。")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button("准备必要组件") {
-                                store.requestCommandLineToolsInstallation()
-                            }
-                            Button("重新检查") {
-                                Task { await store.refreshSystem() }
-                            }
-                            .disabled(store.isInitializing || !store.setupReady)
-                        }
-                        .padding(8)
-                    }
-                } else if !store.pythonRuntimeReady {
-                    Label("Mac 运行组件会在安装时自动下载，无需手动配置。", systemImage: "arrow.down.circle")
+                if !store.pythonRuntimeReady {
+                    Label("Mac 运行组件已包含在安装器中，会在安装时自动准备。", systemImage: "shippingbox.fill")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
@@ -117,27 +94,14 @@ struct DeviceSetupStepView: View {
                                 || !store.setupReady
                                 || store.selectedDevice?.isEspressifUSB != true
                                 || !store.installModeRequirementSatisfied
-                                || !store.swiftToolchainReady
                         )
-                }
-
-                if store.snapshot.idfExportPath == nil {
-                    Text("首次安装会自动下载约 1 GB 的设备组件，可能需要几分钟。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
         }
         .task {
-            var pollCount = 0
             while !Task.isCancelled {
                 if !store.isInitializing, store.setupReady, !store.isBusy {
                     await store.refreshDevices()
-                    pollCount += 1
-                    if !store.swiftToolchainReady, pollCount.isMultiple(of: 4) {
-                        await store.refreshSystem()
-                    }
                 }
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
             }
@@ -210,9 +174,8 @@ struct DeviceSetupStepView: View {
     }
 
     private var environmentSummary: String {
-        if !store.swiftToolchainReady { return "等待 Apple 系统组件" }
         if !store.pythonRuntimeReady { return "Mac 运行组件将自动准备" }
-        return store.snapshot.idfExportPath == nil ? "设备组件将在下一步自动准备" : "安装组件已准备好"
+        return "内置安装组件已准备好"
     }
 
     private var deviceStatusIcon: String {
@@ -256,7 +219,7 @@ struct DeviceSetupStepView: View {
         case .checking:
             "正在通过只读握手确认 \(device.name)。"
         case .unavailable:
-            "首次安装会在准备好设备组件后自动确认安装模式。"
+            "内置设备组件暂时不可用，请重新下载安装器。"
         case let .failed(message):
             message
         case .unknown:

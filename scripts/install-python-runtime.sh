@@ -25,8 +25,9 @@ BASE_DIR="$HOME/.local/share/vibestick/python"
 DESTINATION="$BASE_DIR/cpython-$PYTHON_VERSION-macos-$ASSET_ARCH-none"
 CURRENT_LINK="$BASE_DIR/cpython-3.12-macos-$ASSET_ARCH-none"
 PYTHON_BIN="$DESTINATION/bin/python3.12"
-ASSET="cpython-$PYTHON_VERSION+$RELEASE-$ASSET_ARCH-apple-darwin-install_only.tar.gz"
-URL="https://github.com/astral-sh/python-build-standalone/releases/download/$RELEASE/$ASSET"
+ROOT_DIR="$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd)"
+ASSET="cpython-$PYTHON_VERSION-$ASSET_ARCH.tar.gz"
+EMBEDDED_ARCHIVE="$ROOT_DIR/release/runtime/$ASSET"
 LOCK_DIR="$BASE_DIR/.install.lock"
 
 case "$BASE_DIR" in
@@ -62,8 +63,12 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 ARCHIVE="$TEMP_DIR/$ASSET"
-printf '%s\n' "Downloading the VibeStick Python runtime..."
-curl --fail --location --retry 3 --connect-timeout 20 --output "$ARCHIVE" "$URL"
+if [ ! -f "$EMBEDDED_ARCHIVE" ] || [ -L "$EMBEDDED_ARCHIVE" ]; then
+  printf '%s\n' "The installer does not contain its signed Python runtime." >&2
+  exit 1
+fi
+printf '%s\n' "Installing the bundled VibeStick Python runtime..."
+cp "$EMBEDDED_ARCHIVE" "$ARCHIVE"
 printf '%s  %s\n' "$SHA256" "$ARCHIVE" | shasum -a 256 --check
 
 mkdir "$TEMP_DIR/unpacked"

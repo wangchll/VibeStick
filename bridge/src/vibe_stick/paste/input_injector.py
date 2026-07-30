@@ -36,6 +36,37 @@ class MacPasteInjector:
             success_message="Pressed Return in the focused app",
         )
 
+    def focus_codex_composer(self) -> PasteResult:
+        return self._run_osascript(
+            [
+                'tell application id "com.openai.codex" to activate',
+                'tell application "System Events"',
+                '  repeat 20 times',
+                '    if exists process "ChatGPT" then exit repeat',
+                '    delay 0.05',
+                '  end repeat',
+                '  if not (exists process "ChatGPT") then error "Codex accessibility process is not running"',
+                '  tell process "ChatGPT"',
+                '    set frontmost to true',
+                '    if (count of windows) > 0 then perform action "AXRaise" of front window',
+                '  end tell',
+                '  repeat 20 times',
+                '    if frontmost of process "ChatGPT" then exit repeat',
+                '    delay 0.05',
+                '  end repeat',
+                '  if not (frontmost of process "ChatGPT") then error "Codex did not become frontmost"',
+                "  delay 0.2",
+                '  set focusedRole to ""',
+                '  try',
+                '    set focusedElement to value of attribute "AXFocusedUIElement" of process "ChatGPT"',
+                '    set focusedRole to value of attribute "AXRole" of focusedElement',
+                '  end try',
+                '  if focusedRole is not "AXTextArea" then tell process "ChatGPT" to key code 53',
+                'end tell',
+            ],
+            success_message="Focused the Codex composer",
+        )
+
     def clear_codex_draft(self) -> PasteResult:
         return self._run_osascript(
             [

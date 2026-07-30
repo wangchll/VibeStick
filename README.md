@@ -21,37 +21,40 @@ VibeStick 把 M5Stack StickS3 变成一个 Codex 桌面终端：显示任务状�
 - 2.4 GHz Wi-Fi 名称和密码。
 - 可选的语音转写 API Key；推荐 [SiliconFlow](https://cloud.siliconflow.cn)，也支持其他 OpenAI 兼容服务。
 
-最新源码版本为 **v0.3.4**。已公开发布的安装包仍可从 [v0.1.7 Release](https://github.com/deanxizian/VibeStick/releases/tag/v0.1.7) 下载；需要空间手势、微信语音输入、离线 Whisper 和右键审批控制时，请从当前源码构建最新版安装器。安装器支持 Apple Silicon 和 Intel；尚未经过 Apple 公证，若首次打开被 macOS 阻止，请右键 App 后选择“打开”。
+当前正式项目版本为 **v0.3.11**。Apple Silicon Mac 可从 [v0.3.11 GitHub Release](https://github.com/wangchll/VibeStick/releases/tag/v0.3.11) 下载 `VibeStickSetup-0.3.11-macOS-arm64.zip`；完整步骤与签名说明见[中文安装说明](release/INSTALL.zh-CN.md)。安装器内置通用固件、ESP32-S3 刷写工具、Python 运行组件以及预编译的 Mac App；普通用户不需要 Xcode、Git、系统 Python 或 ESP-IDF。
+
+v0.3.11 下载包为 ad-hoc 签名、尚未经过 Apple 公证，首次打开需要按安装说明手动确认。请同时下载 Release 中的 `.sha256` 文件核对归档完整性。
 
 也可以从源码构建：
 
 ```sh
-git clone https://github.com/deanxizian/VibeStick.git
+git clone https://github.com/wangchll/VibeStick.git
 cd VibeStick
 ./script/build_and_run.sh
 ```
 
-安装器会自动打开，并保存在 `dist/VibeStickSetup.app`。之后可以直接打开这个 App，或将它移到“应用程序”。首次从源码构建需要 Xcode Command Line Tools；其余运行环境由安装器自动准备。
+安装器会自动打开，并保存在 `dist/VibeStickSetup.app`。之后可以直接打开这个 App，或将它移到“应用程序”。只有制作 Release 的开发机器需要 Xcode Command Line Tools 和 ESP-IDF；普通安装机器不需要。
 
 安装只有三步：
 
 1. 填写 Wi-Fi、调节 StickS3 提醒音音量，并按需配置和检测语音 API。
 2. 连接 StickS3，按界面提示进入安装模式。
-3. 确认安装；客户端会自动准备组件、烧录固件、安装 Mac 服务并检查设备联网。
+3. 确认安装；客户端会校验内置组件、生成设备专属配置、烧录固件、安装 Mac 服务并检查设备联网。
 
-首次安装会下载约 1 GB 的 ESP-IDF。安装期间请保持 Mac 联网并且不要拔掉数据线。
+首次安装不再下载约 1 GB 的 ESP-IDF。安装期间请不要拔掉数据线；只有检测云端语音 API 时需要联网。
 
 ## 使用
 
 - 在 Mac 状态栏的“语音识别模式”中选择云端 API、本地 Whisper 或微信语音输入法；三种模式彼此独立保留。
 - 长按正面蓝键说话，松开后完成当前模式的输入。微信模式会从按下时开始流式传输，并模拟微信输入法默认的长按 Fn，无需修改微信快捷键。
+- Codex 显示“待命”且没有待发送的语音草稿时，单击蓝键会将 Codex 拉到前台并把键盘焦点移到输入框。
 - 录音成功后的 30 秒内，单击蓝键发送当前草稿。
 - 录音成功后的 30 秒内，双击蓝键暂停当前 Codex 任务。
 - 单击右侧大矩形键切换到 Roxy 页面；有真实 Codex 授权框时同时“允许”。双击切回监控页；有授权框时同时“拒绝”。
 - 语音文字粘贴错误时，长按右侧大矩形键约 0.7 秒，清空 Codex 输入框中的语音草稿。
 - 在菜单栏启用“空间手势”后，同时按下正面蓝键和右侧大矩形键启动识别窗口；设备会播放提示音并持续显示“识别中”。
 - 识别窗口内敲击 S3 两次可切换 Codex 规划模式，敲击三次可切换快速模式，连续摇晃可新建任务。三个动作均可在“空间手势设置…”中改为其他 macOS 快捷键或单独禁用。
-- 提醒音音量可在安装器中按 0–100% 调节；重新安装并烧录后生效。
+- 提醒音音量可在安装器中按 0–100% 调节；重新安装后只需更新设备配置即可生效。
 - 修改 Wi-Fi、提醒音音量、语音配置或重新烧录时，再次打开最新版安装器并重新安装。Mac 软件安装和固件刷新都以安装器为唯一正式交付路径。
 
 Bridge 和 HUD 会随当前用户登录自动启动。Mac 与 StickS3 需要连接同一局域网。

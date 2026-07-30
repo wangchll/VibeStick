@@ -22,7 +22,6 @@ final class DeploymentCoordinatorTests: XCTestCase {
             _ = try await coordinator.deploy(
                 configuration: configuration,
                 device: selectedDevice,
-                idfExportPath: "/tmp/export-idf.sh",
                 onStep: { phase, state in events.append(phase, state) },
                 onOutput: { _ in }
             )
@@ -35,7 +34,7 @@ final class DeploymentCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(
             runner.commands().map(\.displayName),
-            ["构建固件", "安装 Mac Bridge"]
+            ["验证通用固件", "安装 Mac Bridge"]
         )
         XCTAssertFalse(runner.commands().contains { $0.displayName == "烧录 StickS3" })
         XCTAssertTrue(events.events().contains { event in
@@ -61,7 +60,6 @@ final class DeploymentCoordinatorTests: XCTestCase {
         let saved = try await coordinator.deploy(
             configuration: configuration,
             device: selectedDevice,
-            idfExportPath: "/tmp/export-idf.sh",
             onStep: { phase, state in events.append(phase, state) },
             onOutput: { _ in }
         )
@@ -74,7 +72,7 @@ final class DeploymentCoordinatorTests: XCTestCase {
         let commands = runner.commands()
         XCTAssertEqual(
             commands.map(\.displayName),
-            ["构建固件", "安装 Mac Bridge", "烧录 StickS3", "启动 StickS3", "等待 StickS3 联网", "运行 VibeStick 诊断"]
+            ["验证通用固件", "安装 Mac Bridge", "烧录 StickS3", "启动 StickS3", "等待 StickS3 联网", "运行 VibeStick 诊断"]
         )
         let flashCommand = try XCTUnwrap(commands.first { $0.displayName == "烧录 StickS3" })
         XCTAssertTrue(flashCommand.arguments.contains(selectedDevice.calloutPath))
@@ -84,8 +82,6 @@ final class DeploymentCoordinatorTests: XCTestCase {
             startCommand.arguments,
             [
                 projectRoot.appendingPathComponent("scripts/start-device.sh").path,
-                "--export",
-                "/tmp/export-idf.sh",
                 "--port",
                 selectedDevice.calloutPath,
             ]
@@ -124,7 +120,6 @@ final class DeploymentCoordinatorTests: XCTestCase {
         _ = try await coordinator.deploy(
             configuration: configuration,
             device: selectedDevice,
-            idfExportPath: "/tmp/export-idf.sh",
             onStep: { _, _ in },
             onOutput: { _ in }
         )
@@ -151,7 +146,6 @@ final class DeploymentCoordinatorTests: XCTestCase {
         _ = try await coordinator.deploy(
             configuration: configuration,
             device: selectedDevice,
-            idfExportPath: "/tmp/export-idf.sh",
             onStep: { phase, state in events.append(phase, state) },
             onOutput: { _ in }
         )
@@ -192,7 +186,6 @@ final class DeploymentCoordinatorTests: XCTestCase {
             _ = try await coordinator.deploy(
                 configuration: configuration,
                 device: selectedDevice,
-                idfExportPath: "/tmp/export-idf.sh",
                 onStep: { phase, state in events.append(phase, state) },
                 onOutput: { _ in }
             )
@@ -229,7 +222,6 @@ final class DeploymentCoordinatorTests: XCTestCase {
             _ = try await coordinator.deploy(
                 configuration: configuration,
                 device: selectedDevice,
-                idfExportPath: "/tmp/export-idf.sh",
                 onStep: { _, _ in },
                 onOutput: { _ in }
             )
@@ -257,10 +249,7 @@ final class DeploymentCoordinatorTests: XCTestCase {
             serialDiscovery: FixedSerialDiscovery(devices: [selectedDevice])
         )
 
-        let ready = try await coordinator.probeInstallMode(
-            device: selectedDevice,
-            idfExportPath: "/tmp/export-idf.sh"
-        )
+        let ready = try await coordinator.probeInstallMode(device: selectedDevice)
         XCTAssertTrue(ready)
         XCTAssertTrue(deploymentRunner.commands().isEmpty)
 
@@ -272,7 +261,6 @@ final class DeploymentCoordinatorTests: XCTestCase {
             command.arguments,
             [
                 projectRoot.appendingPathComponent("scripts/probe-rom-mode.sh").path,
-                "--export", "/tmp/export-idf.sh",
                 "--port", selectedDevice.calloutPath,
                 "--serial", "14:C1:9F:D5:3D:5C",
             ]
@@ -292,10 +280,7 @@ final class DeploymentCoordinatorTests: XCTestCase {
             serialDiscovery: FixedSerialDiscovery(devices: [selectedDevice])
         )
 
-        let ready = try await coordinator.probeInstallMode(
-            device: selectedDevice,
-            idfExportPath: "/tmp/export-idf.sh"
-        )
+        let ready = try await coordinator.probeInstallMode(device: selectedDevice)
         XCTAssertFalse(ready)
     }
 
@@ -312,10 +297,7 @@ final class DeploymentCoordinatorTests: XCTestCase {
         )
 
         do {
-            _ = try await coordinator.probeInstallMode(
-                device: selectedDevice,
-                idfExportPath: "/tmp/export-idf.sh"
-            )
+            _ = try await coordinator.probeInstallMode(device: selectedDevice)
             XCTFail("expected a busy serial port to be reported as a probe failure")
         } catch let error as SetupCoreError {
             XCTAssertEqual(error, .deviceInstallModeProbeFailed(13))
@@ -340,10 +322,7 @@ final class DeploymentCoordinatorTests: XCTestCase {
         )
 
         do {
-            _ = try await coordinator.probeInstallMode(
-                device: selectedDevice,
-                idfExportPath: "/tmp/export-idf.sh"
-            )
+            _ = try await coordinator.probeInstallMode(device: selectedDevice)
             XCTFail("expected changed USB identity to invalidate the probe")
         } catch let error as SetupCoreError {
             XCTAssertEqual(error, .deviceChanged)
@@ -370,7 +349,6 @@ final class DeploymentCoordinatorTests: XCTestCase {
             _ = try await coordinator.deploy(
                 configuration: configuration,
                 device: selectedDevice,
-                idfExportPath: "/tmp/export-idf.sh",
                 onStep: { _, _ in },
                 onOutput: { _ in }
             )

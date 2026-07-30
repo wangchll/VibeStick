@@ -2,6 +2,13 @@
 
 These rules are mandatory for every product change in this repository.
 
+Documentation-only changes are exempt from the release workflow below. If an
+update changes only documentation or documentation assets, and does not change
+code, firmware, runtime configuration, installer behavior, or deployable
+resources, do not increment any version, run the full build or verification
+workflow, launch the installer, install Mac software, or flash firmware. Make
+and validate only the documentation change that was requested.
+
 1. Increment the VibeStick patch version for every delivered update. Keep the
    Bridge version, StickS3 firmware version, installer version, installed
    menu-bar version, and visible About version in sync.
@@ -20,4 +27,3 @@ These rules are mandatory for every product change in this repository.
 6. Firmware flashing and Mac software installation must be performed through
    the rebuilt installer. Direct build, copy, or flash commands may be used for
    development diagnostics, but they do not count as deployment or completion.
-

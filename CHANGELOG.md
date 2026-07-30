@@ -1,5 +1,42 @@
 # Changelog
 
+## v0.3.11
+
+- Make front-button composer focusing idempotent by preserving an existing `AXTextArea` focus instead of sending Escape again.
+
+## v0.3.10
+
+- Let a front-button focus request raise ChatGPT even when another root Codex task keeps the aggregate Bridge state at `RUNNING`.
+- Preserve voice-draft submission priority, ignore the focus action while an approval prompt is pending, and wait briefly for the `ChatGPT` Accessibility process after app activation.
+
+## v0.3.9
+
+- Forward front-button single clicks to the Bridge outside the post-recording window so standby focus requests are no longer discarded by firmware.
+- Target the actual `ChatGPT` Accessibility process when raising Codex and focusing its composer.
+
+## v0.3.8
+
+- Make a front-button single click raise Codex and focus its composer while Codex is idle and no pasted voice draft is pending.
+- Consume a pasted voice draft after Return is injected successfully so later idle clicks can focus the composer without sending another Return.
+
+## v0.3.7
+
+- Reduce PMIC polling from every 2 seconds to every 30 seconds while the screen is off during completion watch.
+- Reduce standalone power telemetry from once per minute to once every 5 minutes in the same low-power state, while retaining interactive polling rates after wake.
+
+## v0.3.6
+
+- Keep StickS3 in low-power connected standby while an observed Codex task is active, using 30-second state polling after the screen turns off.
+- Preserve completion monitoring across temporary network failures and silent task periods up to two hours, then return to the existing deep-sleep policy after the terminal alert.
+
+## v0.3.5
+
+- Replace per-user firmware compilation with one verified universal StickS3 firmware and a private per-device NVS configuration image.
+- Reserve two 3 MB OTA slots and a separate 24 KB `vibe_cfg` partition while keeping USB updates as the supported v0.3.5 path.
+- Embed macOS arm64/x86_64 esptool binaries and Python runtime archives so consumer Macs no longer install ESP-IDF, Xcode Command Line Tools, Git, or system Python.
+- Precompile and sign the HUD and menu-bar payloads on the release machine, and package a versioned firmware manifest with SHA-256 verification.
+- Generate a DMG for universal package builds and keep ASR credentials exclusively on the Mac.
+
 ## v0.3.4
 
 - Replace first-threshold-wins gesture handling with delayed, mutually exclusive classification after motion settles.

@@ -26,5 +26,24 @@ int main(void)
     assert(!vibe_power_should_deep_sleep(true, false, true, 301, 1, 300));
     assert(!vibe_power_should_deep_sleep(false, true, true, 301, 1, 300));
     assert(!vibe_power_should_deep_sleep(false, false, false, 301, 1, 300));
+    assert(vibe_power_completion_watch_update(false, true, "RUNNING", 0));
+    assert(vibe_power_completion_watch_update(false, true, "APPROVAL", 0));
+    assert(vibe_power_completion_watch_update(false, true, "ERROR", 1));
+    assert(!vibe_power_completion_watch_update(true, true, "DONE", 0));
+    assert(!vibe_power_completion_watch_update(true, true, "ERROR", 0));
+    assert(vibe_power_completion_watch_update(true, false, "OFFLINE", 0));
+    assert(!vibe_power_completion_watch_update(false, false, "RUNNING", 1));
+    bool completion_watch =
+        vibe_power_completion_watch_update(false, true, "RUNNING", 1);
+    assert(!vibe_power_should_deep_sleep(completion_watch, false, true,
+                                         301, 1, 300));
+    completion_watch =
+        vibe_power_completion_watch_update(completion_watch, true, "DONE", 0);
+    assert(vibe_power_should_deep_sleep(completion_watch, false, true,
+                                        301, 1, 300));
+    assert(vibe_power_adaptive_interval_ms(false, true, 2000, 30000) == 2000);
+    assert(vibe_power_adaptive_interval_ms(true, false, 2000, 30000) == 2000);
+    assert(vibe_power_adaptive_interval_ms(true, true, 2000, 30000) == 30000);
+    assert(vibe_power_adaptive_interval_ms(true, true, 60000, 300000) == 300000);
     return 0;
 }

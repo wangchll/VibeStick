@@ -1,6 +1,6 @@
 # Protocol
 
-VibeStick v0.3.4 uses HTTP over Wi-Fi between the StickS3 firmware and the local Mac bridge.
+VibeStick v0.3.11 uses HTTP over Wi-Fi between the StickS3 firmware and the local Mac bridge.
 
 Default bridge URL:
 
@@ -14,7 +14,7 @@ Firmware requests include:
 
 ```text
 X-Vibe-Stick-Firmware-Name: vibestick
-X-Vibe-Stick-Firmware-Version: 0.3.4
+X-Vibe-Stick-Firmware-Version: 0.3.11
 X-Vibe-Stick-Firmware-Transport: HTTP
 X-Vibe-Stick-Firmware-Build-Date: <compile date>
 ```
@@ -83,13 +83,13 @@ Returns the current bridge state:
     "message": ""
   },
   "bridge_name": "vibestick-bridge",
-  "bridge_version": "0.3.4"
+  "bridge_version": "0.3.11"
 }
 ```
 
 `battery` is intentionally `null` from the bridge. The StickS3 displays its local PMIC battery reading.
 
-`active_provider` is fixed to `codex`, and the normalized `provider` block mirrors the `codex` block for older firmware. `active_conversations` is the number of running root conversations, clamped to `0` through `99`; Codex subagent sessions are excluded. The firmware shows this number only while Codex is `RUNNING`.
+`active_provider` is fixed to `codex`, and the normalized `provider` block mirrors the `codex` block for older firmware. `active_conversations` is the number of running root conversations, clamped to `0` through `99`; Codex subagent sessions are excluded. An explicit `task_started` lifecycle remains active through silent periods for up to two hours or until a matching terminal event. The firmware shows this number only while Codex is `RUNNING`.
 
 `quota_remaining` is the remaining percentage for the single current Codex usage window, `quota_window_minutes` describes that window, `quota_resets_at` is its Unix reset timestamp, and `quota_reset_after_seconds` is a bridge-calculated countdown for devices without a wall clock. With a weekly-only window, firmware renders `WEEK <percent>` and `RESET <days/hours>`; the reset progress bar shows the remaining time as a proportion of the full window. If Codex reports both the legacy 5-hour and 7-day windows, the generic fields are `null` and firmware retains the `5H`/`7D` display. `quota_5h_remaining` and `quota_7d_remaining` remain for backward compatibility. An unknown percentage is rendered as `--%`.
 
@@ -101,7 +101,7 @@ Returns bridge health metadata:
 {
   "ok": true,
   "bridge_name": "vibestick-bridge",
-  "bridge_version": "0.3.4"
+  "bridge_version": "0.3.11"
 }
 ```
 
@@ -115,7 +115,7 @@ Examples:
 {"event":"button_short","source":"sticks3"}
 ```
 
-After a recording finishes successfully, the Bridge accepts button actions for 30 seconds. During that window, `button_short` injects Return into the focused macOS app, while `button_double` activates the Codex desktop app and sends its stop-turn Escape sequence. Both events are acknowledged but ignored outside the window. Stopping interrupts only the current turn; the task history remains available for a follow-up.
+After a recording finishes successfully, `button_short` injects Return into the focused macOS app and consumes the pending draft after a successful injection. While no draft is pending and Codex is `IDLE` or `UNKNOWN`, the same event raises the Codex desktop app and sends one Escape to focus its composer. `button_double` remains available for 30 seconds after recording and sends the Codex stop-turn Escape sequence. Other states ignore the focus action so a click cannot disturb a running turn, completion alert, error, or approval prompt.
 
 ```json
 {"event":"button_double","source":"sticks3"}

@@ -1,9 +1,10 @@
 # Battery Telemetry
 
 VibeStick records a lightweight power baseline once per minute while Wi-Fi is
-connected and audio recording is inactive. Each sample contains firmware
-version, uptime, battery voltage and percentage, charge and USB state, Wi-Fi
-RSSI, and the Bridge receive time.
+connected and audio recording is inactive. When completion watch is active and
+the screen is off, the interval increases to 5 minutes to reduce Wi-Fi and PMIC
+wakeups. Each sample contains firmware version, uptime, battery voltage and
+percentage, charge and USB state, Wi-Fi RSSI, and the Bridge receive time.
 
 The authenticated endpoints are:
 

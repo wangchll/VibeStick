@@ -139,9 +139,6 @@ struct SetupRootView: View {
 
     private var installConfirmationMessage: String {
         let name = pendingInstallDevice?.name ?? "所选设备"
-        let download = store.snapshot.idfExportPath == nil
-            ? "首次安装还会下载约 1 GB 的组件。"
-            : ""
-        return "即将重写 \(name) 的固件。请确认它是 M5Stack StickS3，并在安装期间不要拔线。\(download)"
+        return "即将使用安装器内置的通用固件重写 \(name)。请确认它是 M5Stack StickS3，并在安装期间不要拔线。"
     }
 }

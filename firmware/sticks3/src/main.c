@@ -6,6 +6,7 @@
 
 #include "vibe_audio.h"
 #include "vibe_board.h"
+#include "vibe_config.h"
 #include "vibe_gesture.h"
 #include "vibe_power_policy.h"
 #include "vibe_roxy_assets.h"
@@ -61,8 +62,11 @@ static int64_t s_screen_idle_off_ms = SCREEN_IDLE_OFF_MS_DEFAULT;
 #define BATTERY_FILL_CHARGING_MAX_WIDTH 28
 #define BATTERY_FILL_NORMAL_MAX_WIDTH 26
 #define POWER_STATE_POLL_MS 2000
+#define COMPLETION_WATCH_POWER_POLL_MS (30 * 1000)
 #define POWER_TELEMETRY_INTERVAL_MS 60000
+#define COMPLETION_WATCH_TELEMETRY_INTERVAL_MS (5 * 60 * 1000)
 #define DEEP_SLEEP_AFTER_MS (5 * 60 * 1000)
+#define COMPLETION_WATCH_POLL_MS (30 * 1000)
 #define BATTERY_SAMPLE_COUNT 5
 #define ALERT_SOUND_PENDING_CAPACITY 32
 #define HTTP_JSON_RESPONSE_CAPACITY 2048
@@ -78,6 +82,7 @@ static int64_t s_screen_idle_off_ms = SCREEN_IDLE_OFF_MS_DEFAULT;
 #define PIN_LCD_BL 38
 
 static const char *TAG = "vibe_stick";
+static vibe_config_t s_config;
 
 typedef enum {
     VIBE_STICK_EVENT_POLL_STATE,
@@ -145,6 +150,7 @@ typedef struct {
 static QueueHandle_t s_event_queue;
 static SemaphoreHandle_t s_lvgl_lock;
 static bool s_wifi_connected;
+static bool s_completion_watch_active;
 static bool s_recording_overlay_visible;
 static atomic_bool s_long_press_active;
 static atomic_bool s_long_start_pending;
@@ -173,6 +179,8 @@ static vibe_gesture_sensitivity_t s_gesture_sensitivity =
 static vibe_roxy_state_t s_pet_animation_state = VIBE_ROXY_IDLE;
 static size_t s_pet_frame_index;
 static uint16_t *s_pet_framebuffer;
+
+static bool refresh_power_state(void);
 
 static lv_display_t *s_display;
 static esp_lcd_panel_handle_t s_display_panel;
@@ -479,7 +487,8 @@ static void maybe_enter_deep_sleep(int64_t now_ms)
     const bool active_work = s_recording_overlay_visible ||
                              vibe_audio_is_recording() ||
                              atomic_load(&s_long_press_active) ||
-                             s_recording_session_id[0] != '\0';
+                             s_recording_session_id[0] != '\0' ||
+                             s_completion_watch_active;
     if (!vibe_power_should_deep_sleep(
             active_work,
             s_state.battery_charging || s_state.usb_powered,
@@ -487,6 +496,11 @@ static void maybe_enter_deep_sleep(int64_t now_ms)
             now_ms,
             s_last_activity_ms,
             DEEP_SLEEP_AFTER_MS)) {
+        return;
+    }
+    (void)refresh_power_state();
+    if (s_state.battery_charging || s_state.usb_powered) {
+        ESP_LOGI(TAG, "deep sleep postponed: external power detected");
         return;
     }
     if (gpio_get_level(PIN_BUTTON_FRONT) == 0) {
@@ -1134,8 +1148,10 @@ static void render_state(void)
     lv_obj_clear_flag(s_codex_icon, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(s_codex_label, "Codex");
     lv_obj_set_style_text_color(s_codex_label, lv_color_hex(0xf3f4f6), 0);
-    const char *visible_status = atomic_load(&s_gesture_window_active)
-        ? "识别中" : status_text_for(display_state->status);
+    const char *visible_status = !s_config.configured
+        ? "等待配置"
+        : (atomic_load(&s_gesture_window_active)
+            ? "识别中" : status_text_for(display_state->status));
     lv_label_set_text(s_status_label, visible_status);
     lv_label_set_text(s_pet_status_label, visible_status);
     set_roxy_animation_state(roxy_state_for_status(display_state->status));
@@ -1450,8 +1466,10 @@ static esp_err_t validate_http_result(esp_err_t perform_err, int status_code,
 static esp_err_t http_request_timeout(const char *method, const char *path, const char *body,
                                       char *response, int response_len, int timeout_ms)
 {
-    char url[160];
-    snprintf(url, sizeof(url), "http://%s:%d%s", VIBE_STICK_BRIDGE_HOST, VIBE_STICK_BRIDGE_PORT, path);
+    ESP_RETURN_ON_FALSE(s_config.configured, ESP_ERR_INVALID_STATE, TAG,
+                        "device configuration is unavailable");
+    char url[384];
+    snprintf(url, sizeof(url), "http://%s:%u%s", s_config.bridge_host, s_config.bridge_port, path);
     http_response_capture_t capture = {
         .data = response,
         .capacity = response_len,
@@ -1474,9 +1492,9 @@ static esp_err_t http_request_timeout(const char *method, const char *path, cons
     esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Version", FIRMWARE_VERSION);
     esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Transport", TRANSPORT);
     esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Build-Date", __DATE__ " " __TIME__);
-    esp_http_client_set_header(client, "X-Vibe-Stick-Deployment-Nonce", VIBE_STICK_DEPLOYMENT_NONCE);
-    if (strlen(VIBE_STICK_BRIDGE_TOKEN) > 0) {
-        esp_http_client_set_header(client, "X-Vibe-Stick-Token", VIBE_STICK_BRIDGE_TOKEN);
+    esp_http_client_set_header(client, "X-Vibe-Stick-Deployment-Nonce", s_config.deployment_nonce);
+    if (strlen(s_config.bridge_token) > 0) {
+        esp_http_client_set_header(client, "X-Vibe-Stick-Token", s_config.bridge_token);
     }
     if (body) {
         esp_http_client_set_header(client, "Content-Type", "application/json");
@@ -1498,8 +1516,10 @@ static esp_err_t http_request(const char *method, const char *path, const char *
 static esp_err_t http_post_binary(const char *path, const uint8_t *body, size_t body_len,
                                   char *response, int response_len)
 {
-    char url[192];
-    snprintf(url, sizeof(url), "http://%s:%d%s", VIBE_STICK_BRIDGE_HOST, VIBE_STICK_BRIDGE_PORT, path);
+    ESP_RETURN_ON_FALSE(s_config.configured, ESP_ERR_INVALID_STATE, TAG,
+                        "device configuration is unavailable");
+    char url[416];
+    snprintf(url, sizeof(url), "http://%s:%u%s", s_config.bridge_host, s_config.bridge_port, path);
     http_response_capture_t capture = {
         .data = response,
         .capacity = response_len,
@@ -1522,9 +1542,9 @@ static esp_err_t http_post_binary(const char *path, const uint8_t *body, size_t 
     esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Version", FIRMWARE_VERSION);
     esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Transport", TRANSPORT);
     esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Build-Date", __DATE__ " " __TIME__);
-    esp_http_client_set_header(client, "X-Vibe-Stick-Deployment-Nonce", VIBE_STICK_DEPLOYMENT_NONCE);
-    if (strlen(VIBE_STICK_BRIDGE_TOKEN) > 0) {
-        esp_http_client_set_header(client, "X-Vibe-Stick-Token", VIBE_STICK_BRIDGE_TOKEN);
+    esp_http_client_set_header(client, "X-Vibe-Stick-Deployment-Nonce", s_config.deployment_nonce);
+    if (strlen(s_config.bridge_token) > 0) {
+        esp_http_client_set_header(client, "X-Vibe-Stick-Token", s_config.bridge_token);
     }
     esp_http_client_set_header(client, "Content-Type", "application/octet-stream");
     esp_http_client_set_header(client, "X-Vibe-Stick-Sample-Rate", "16000");
@@ -1623,6 +1643,15 @@ static void parse_codex_json(cJSON *codex)
 {
     codex_display_state_t *display_state = &s_codex_state;
     parse_codex_fields(codex, display_state);
+    const bool completion_watch = vibe_power_completion_watch_update(
+        s_completion_watch_active, true, display_state->status,
+        display_state->active_conversations);
+    if (completion_watch != s_completion_watch_active) {
+        ESP_LOGI(TAG, "completion watch %s status=%s active=%d",
+                 completion_watch ? "started" : "stopped",
+                 display_state->status, display_state->active_conversations);
+        s_completion_watch_active = completion_watch;
+    }
     ESP_LOGI(TAG, "codex parsed status=%s active=%d q5=%s%d q7=%s%d stale=%d",
              display_state->status,
              display_state->active_conversations,
@@ -2278,8 +2307,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 
 static esp_err_t init_wifi(void)
 {
-    if (strlen(VIBE_STICK_WIFI_SSID) == 0) {
-        ESP_LOGW(TAG, "VIBE_STICK_WIFI_SSID is empty; Wi-Fi disabled");
+    if (!s_config.configured) {
+        ESP_LOGW(TAG, "device configuration is unavailable; Wi-Fi disabled");
         return ESP_OK;
     }
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init");
@@ -2290,8 +2319,8 @@ static esp_err_t init_wifi(void)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
     wifi_config_t wifi_config = {0};
-    strlcpy((char *)wifi_config.sta.ssid, VIBE_STICK_WIFI_SSID, sizeof(wifi_config.sta.ssid));
-    strlcpy((char *)wifi_config.sta.password, VIBE_STICK_WIFI_PASSWORD, sizeof(wifi_config.sta.password));
+    strlcpy((char *)wifi_config.sta.ssid, s_config.wifi_ssid, sizeof(wifi_config.sta.ssid));
+    strlcpy((char *)wifi_config.sta.password, s_config.wifi_password, sizeof(wifi_config.sta.password));
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "wifi mode");
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_STA, &wifi_config), TAG, "wifi config");
@@ -2501,18 +2530,28 @@ static void app_task(void *arg)
                 s_recording_streaming = false;
             }
         }
-        if (now_ms - last_power_poll >= POWER_STATE_POLL_MS) {
+        const int64_t power_poll_ms = vibe_power_adaptive_interval_ms(
+            s_screen_asleep, s_completion_watch_active,
+            POWER_STATE_POLL_MS, COMPLETION_WATCH_POWER_POLL_MS);
+        if (now_ms - last_power_poll >= power_poll_ms) {
             last_power_poll = now_ms;
             if (refresh_power_state()) {
                 render_state();
             }
         }
-        if (s_wifi_connected && now_ms - last_poll >= VIBE_STICK_STATE_POLL_MS) {
+        const int64_t state_poll_ms = vibe_power_adaptive_interval_ms(
+            s_screen_asleep, s_completion_watch_active,
+            VIBE_STICK_STATE_POLL_MS, COMPLETION_WATCH_POLL_MS);
+        if (s_wifi_connected && now_ms - last_poll >= state_poll_ms) {
             last_poll = now_ms;
             poll_state();
         }
+        const int64_t power_telemetry_ms = vibe_power_adaptive_interval_ms(
+            s_screen_asleep, s_completion_watch_active,
+            POWER_TELEMETRY_INTERVAL_MS,
+            COMPLETION_WATCH_TELEMETRY_INTERVAL_MS);
         if (s_wifi_connected && !vibe_audio_is_recording() &&
-            now_ms - last_power_telemetry >= POWER_TELEMETRY_INTERVAL_MS) {
+            now_ms - last_power_telemetry >= power_telemetry_ms) {
             last_power_telemetry = now_ms;
             post_power_telemetry();
         }
@@ -2534,11 +2573,10 @@ static void app_task(void *arg)
             poll_state();
             break;
         case VIBE_STICK_EVENT_SHORT_PRESS:
-            if (post_recording_action_available()) {
-                post_simple_event("button_short", NULL);
-            } else {
-                ESP_LOGI(TAG, "ignored single click outside post-recording window");
-            }
+            // The Bridge owns the final state gate: it sends a pending voice
+            // draft, focuses the Codex composer while idle, and ignores the
+            // event in states where a click could disrupt work.
+            post_simple_event("button_short", NULL);
             break;
         case VIBE_STICK_EVENT_DOUBLE_CLICK:
             if (post_recording_action_available()) {
@@ -2654,6 +2692,10 @@ void app_main(void)
     } else {
         ESP_ERROR_CHECK(nvs);
     }
+    esp_err_t config_err = vibe_config_load(&s_config);
+    if (config_err != ESP_OK) {
+        ESP_LOGW(TAG, "running unconfigured: %s", esp_err_to_name(config_err));
+    }
 
     ESP_ERROR_CHECK_WITHOUT_ABORT(vibe_board_init_power());
     ESP_ERROR_CHECK(init_power_management());
@@ -2668,7 +2710,7 @@ void app_main(void)
     (void)refresh_power_state();
     render_state();
     ESP_ERROR_CHECK(init_buttons());
-    ESP_ERROR_CHECK(vibe_audio_init());
+    ESP_ERROR_CHECK(vibe_audio_init(s_config.speaker_volume));
     esp_err_t gesture_err = vibe_gesture_init(vibe_board_i2c_bus(), gesture_event_cb, NULL);
     if (gesture_err != ESP_OK) {
         ESP_LOGW(TAG, "BMI270 gestures unavailable: %s", esp_err_to_name(gesture_err));

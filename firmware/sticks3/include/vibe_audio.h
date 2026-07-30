@@ -18,7 +18,7 @@ typedef enum {
     VIBE_STICK_SOUND_GESTURE_RECOGNIZED,
 } agent_sound_t;
 
-esp_err_t vibe_audio_init(void);
+esp_err_t vibe_audio_init(uint8_t speaker_volume);
 esp_err_t vibe_audio_start(void);
 esp_err_t vibe_audio_stop(void);
 esp_err_t vibe_audio_play_sound(agent_sound_t sound);

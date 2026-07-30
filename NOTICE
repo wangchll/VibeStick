@@ -12,3 +12,14 @@ The generated glyph subset is used only for the StickS3 Chinese UI font in:
   firmware/sticks3/generated/vibe_stick_cn_16.c
 
 VibeStick does not intentionally vendor third-party brand assets or historical prototype application shells in v0.1.1.
+
+The self-contained installer redistributes official Espressif esptool v4.11.0
+standalone binaries under GPL-2.0. The complete license is included at
+release/tools/esptool/LICENSE.
+
+The installer includes Espressif's esp_idf_nvs_partition_gen v0.1.9 source under
+Apache-2.0; its SPDX copyright and license headers are retained in the source.
+
+The installer includes CPython 3.12.13 runtime archives built by
+python-build-standalone release 20260510. CPython and bundled dependency license
+texts are retained inside those archives.

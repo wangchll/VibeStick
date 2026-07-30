@@ -181,6 +181,60 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(observation.status, AgentStatus.IDLE)
         self.assertEqual(observation.alert_type, "")
 
+    def test_silent_started_turn_remains_active_beyond_activity_window(self) -> None:
+        now = datetime.now(timezone.utc)
+
+        observation = self._observe_events(
+            [
+                self._event(
+                    now - local_observer.RUNNING_ACTIVITY_WINDOW - timedelta(minutes=1),
+                    "task_started",
+                    turn_id="turn-silent",
+                ),
+            ]
+        )
+
+        self.assertEqual(observation.status, AgentStatus.RUNNING)
+        self.assertEqual(observation.active_conversations, 1)
+
+    def test_started_turn_expires_after_completion_watch_window(self) -> None:
+        now = datetime.now(timezone.utc)
+
+        observation = self._observe_events(
+            [
+                self._event(
+                    now - local_observer.COMPLETION_WATCH_WINDOW - timedelta(seconds=1),
+                    "task_started",
+                    turn_id="turn-stale",
+                ),
+            ]
+        )
+
+        self.assertEqual(observation.status, AgentStatus.IDLE)
+        self.assertEqual(observation.active_conversations, 0)
+
+    def test_error_ends_completion_watch(self) -> None:
+        now = datetime.now(timezone.utc)
+
+        observation = self._observe_events(
+            [
+                self._event(
+                    now - timedelta(minutes=10),
+                    "task_started",
+                    turn_id="turn-error",
+                ),
+                self._event(
+                    now - timedelta(seconds=1),
+                    "agent_error",
+                    turn_id="turn-error",
+                ),
+            ]
+        )
+
+        self.assertEqual(observation.status, AgentStatus.ERROR)
+        self.assertEqual(observation.active_conversations, 0)
+        self.assertEqual(observation.alert_type, "ERROR")
+
     def test_non_finite_rate_limit_is_ignored(self) -> None:
         now = datetime.now(timezone.utc)
         payload = {

@@ -1,6 +1,6 @@
 # States And Sounds
 
-VibeStick v0.3.4 plays sounds for key agent status changes, when a spatial-gesture window opens, and when a gesture is recognised. Recording states and WeChat virtual-audio streaming do not play sounds.
+VibeStick v0.3.11 plays sounds for key agent status changes, when a spatial-gesture window opens, and when a gesture is recognised. Recording states and WeChat virtual-audio streaming do not play sounds.
 
 | State | Trigger | Sound |
 | --- | --- | --- |
@@ -47,6 +47,13 @@ conversation is still active, the home-screen status stays `RUNNING` while the
 completion alert still plays once. Background subagent sessions (including approval
 guardians) are excluded. A newer turn in the same conversation clears that
 conversation's older stale alert.
+
+After StickS3 observes an active root conversation, it keeps a completion-watch latch
+through temporary network failures. With the screen off it checks state every 30 seconds,
+plays a terminal alert synchronously, and only then permits the normal deep-sleep policy.
+PMIC reads also slow to 30 seconds and standalone power telemetry to 5 minutes until
+the screen wakes. The Bridge retains an explicit silent `task_started` lifecycle for
+up to two hours.
 
 While Codex is `RUNNING`, a small numeric badge replaces the status dot immediately
 before the running label. It counts running user root conversations only; the badge

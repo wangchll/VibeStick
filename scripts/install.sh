@@ -22,12 +22,12 @@ PLIST_PATH="$LAUNCH_AGENTS_DIR/com.vibestick.bridge.plist"
 HUD_PLIST_PATH="$LAUNCH_AGENTS_DIR/com.vibestick.hud.plist"
 RUNNER_PATH="$CONFIG_DIR/run-bridge.sh"
 HUD_BINARY_PATH="$CONFIG_DIR/VibeStickHUD"
-HUD_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickHUD/main.swift"
+HUD_RELEASE_PATH="$ROOT_DIR/release/macos/VibeStickHUD"
 MENUBAR_PLIST_PATH="$LAUNCH_AGENTS_DIR/com.vibestick.menubar.plist"
 MENUBAR_APP_NAME="VibeStickMenuBar.app"
 MENUBAR_APP_PATH="$CONFIG_DIR/$MENUBAR_APP_NAME"
 MENUBAR_BINARY_PATH="$MENUBAR_APP_PATH/Contents/MacOS/VibeStickMenuBar"
-MENUBAR_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickMenuBar/main.swift"
+MENUBAR_RELEASE_PATH="$ROOT_DIR/release/macos/VibeStickMenuBar.app"
 DOMAIN="gui/$(id -u)"
 
 STAGING_DIR=""
@@ -140,11 +140,12 @@ preflight_platform() {
     printf '%s\n' "Do not run scripts/install.sh with sudo; LaunchAgents must belong to the signed-in user." >&2
     exit 1
   fi
-  for command_name in awk cp curl launchctl mkdir mv sed swiftc; do
+  for command_name in awk cp launchctl mkdir mv sed; do
     require_command "$command_name"
   done
-  if [ ! -d "$ROOT_DIR/bridge/src/vibe_stick" ] || [ ! -f "$HUD_SOURCE_PATH" ]; then
-    printf '%s\n' "Bridge or HUD source files are missing from this checkout." >&2
+  if [ ! -d "$ROOT_DIR/bridge/src/vibe_stick" ] || [ ! -x "$HUD_RELEASE_PATH" ] \
+     || [ ! -x "$MENUBAR_RELEASE_PATH/Contents/MacOS/VibeStickMenuBar" ]; then
+    printf '%s\n' "Prebuilt Bridge or Mac application resources are missing." >&2
     exit 1
   fi
   if ! launchctl print "$DOMAIN" >/dev/null 2>&1; then
@@ -416,45 +417,9 @@ find "$STAGING_DIR/runtime/bridge" -name '__pycache__' -type d -prune -exec rm -
 cp "$ENV_PATH" "$STAGING_DIR/installed.env"
 chmod 600 "$STAGING_DIR/installed.env"
 
-# Preflight: the Swift sources must ship inside the installer project, or
-# swiftc fails with an opaque "file not found" that set -e turns into a silent
-# "exit code 1". Fail loudly and early instead.
-for _src in "$HUD_SOURCE_PATH" "$MENUBAR_SOURCE_PATH"; do
-  if [ ! -f "$_src" ]; then
-    echo "Missing required Swift source for build: $_src" >&2
-    echo "The VibeStickProject template is incomplete; reinstall the VibeStick installer." >&2
-    exit 1
-  fi
-done
-
-swiftc "$HUD_SOURCE_PATH" -o "$STAGING_DIR/VibeStickHUD" -framework AppKit -framework QuartzCore
+cp "$HUD_RELEASE_PATH" "$STAGING_DIR/VibeStickHUD"
 chmod 700 "$STAGING_DIR/VibeStickHUD"
-mkdir -p "$STAGING_DIR/VibeStickMenuBar.app/Contents/MacOS"
-swiftc "$MENUBAR_SOURCE_PATH" -o "$STAGING_DIR/VibeStickMenuBar.app/Contents/MacOS/VibeStickMenuBar" -framework AppKit -framework Foundation
-cat > "$STAGING_DIR/VibeStickMenuBar.app/Contents/Info.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleName</key>
-    <string>VibeStickMenuBar</string>
-    <key>CFBundleDisplayName</key>
-    <string>VibeStick</string>
-    <key>CFBundleExecutable</key>
-    <string>VibeStickMenuBar</string>
-    <key>CFBundleIdentifier</key>
-    <string>com.vibestick.menubar</string>
-    <key>CFBundlePackageType</key>
-    <string>APPL</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.3.4</string>
-    <key>LSMinimumSystemVersion</key>
-    <string>11.0</string>
-    <key>LSUIElement</key>
-    <true/>
-</dict>
-</plist>
-PLIST
+cp -R "$MENUBAR_RELEASE_PATH" "$STAGING_DIR/VibeStickMenuBar.app"
 chmod 700 "$STAGING_DIR/VibeStickMenuBar.app/Contents/MacOS/VibeStickMenuBar"
 
 {

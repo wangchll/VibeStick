@@ -1,5 +1,7 @@
 #include "vibe_power_policy.h"
 
+#include <string.h>
+
 int64_t vibe_power_dim_after_ms(int64_t off_after_ms,
                                 int64_t maximum_dim_after_ms)
 {
@@ -40,4 +42,28 @@ bool vibe_power_should_deep_sleep(bool active_work,
     return !active_work && !external_powered && display_off &&
            last_activity_ms > 0 && now_ms >= last_activity_ms &&
            now_ms - last_activity_ms >= deep_sleep_after_ms;
+}
+
+bool vibe_power_completion_watch_update(bool current_watch,
+                                        bool valid_state,
+                                        const char *status,
+                                        int active_conversations)
+{
+    if (!valid_state) {
+        return current_watch;
+    }
+    if (active_conversations > 0) {
+        return true;
+    }
+    return status != NULL &&
+           (strcmp(status, "RUNNING") == 0 || strcmp(status, "APPROVAL") == 0);
+}
+
+int64_t vibe_power_adaptive_interval_ms(bool display_off,
+                                        bool completion_watch,
+                                        int64_t active_interval_ms,
+                                        int64_t watch_interval_ms)
+{
+    return display_off && completion_watch ? watch_interval_ms
+                                           : active_interval_ms;
 }

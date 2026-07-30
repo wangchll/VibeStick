@@ -21,6 +21,7 @@ class ButtonActionTests(unittest.TestCase):
         self.store.refresh_quota_locked = mock.Mock()
         self.store.input_injector = mock.Mock()
         self.store.input_injector.press_enter.return_value = PasteResult(True, "sent")
+        self.store.input_injector.focus_codex_composer.return_value = PasteResult(True, "focused")
         self.store.input_injector.pause_current_codex_task.return_value = PasteResult(True, "paused")
         self.store.input_injector.clear_codex_draft.return_value = PasteResult(True, "cleared")
         self.store.input_injector.approve_codex_task.return_value = PasteResult(True, "approved")
@@ -85,8 +86,52 @@ class ButtonActionTests(unittest.TestCase):
         self.store.update_from_event({"event": "button_short"})
 
         self.store.input_injector.press_enter.assert_called_once_with()
+        self.store.input_injector.focus_codex_composer.assert_not_called()
         self.store.input_injector.pause_current_codex_task.assert_not_called()
         self.assertEqual(self.store._state.alert.type, AlertType.NONE)
+        self.assertFalse(self.store._last_session_pasted)
+
+    def test_short_press_send_failure_keeps_voice_draft(self) -> None:
+        self.store._last_session_pasted = True
+        self.store.input_injector.press_enter.return_value = PasteResult(False, "failed")
+
+        self.store.update_from_event({"event": "button_short"})
+
+        self.assertTrue(self.store._last_session_pasted)
+        self.store.input_injector.focus_codex_composer.assert_not_called()
+
+    def test_short_press_focuses_codex_composer_while_idle(self) -> None:
+        self.store._state.codex.status = app.AgentStatus.IDLE
+        self.store._post_recording_action_until = 0.0
+
+        self.store.update_from_event({"event": "button_short"})
+
+        self.store.input_injector.focus_codex_composer.assert_called_once_with()
+        self.store.input_injector.press_enter.assert_not_called()
+
+    def test_short_press_focuses_codex_composer_for_unknown_standby(self) -> None:
+        self.store._state.codex.status = app.AgentStatus.UNKNOWN
+
+        self.store.update_from_event({"event": "button_short"})
+
+        self.store.input_injector.focus_codex_composer.assert_called_once_with()
+
+    def test_short_press_focuses_visible_composer_while_another_task_is_running(self) -> None:
+        self.store._state.codex.status = app.AgentStatus.RUNNING
+        self.store._post_recording_action_until = 0.0
+
+        self.store.update_from_event({"event": "button_short"})
+
+        self.store.input_injector.focus_codex_composer.assert_called_once_with()
+        self.store.input_injector.press_enter.assert_not_called()
+
+    def test_short_press_does_not_disturb_pending_approval(self) -> None:
+        self.store._state.codex.status = app.AgentStatus.APPROVAL
+
+        self.store.update_from_event({"event": "button_short"})
+
+        self.store.input_injector.focus_codex_composer.assert_not_called()
+        self.store.input_injector.press_enter.assert_not_called()
 
     def test_double_click_pauses_without_refreshing_quota(self) -> None:
         self.store.update_from_event({"event": "button_double"})
@@ -95,17 +140,19 @@ class ButtonActionTests(unittest.TestCase):
         self.store.input_injector.press_enter.assert_not_called()
         self.store.refresh_quota_locked.assert_not_called()
 
-    def test_clicks_are_ignored_before_recording_window_opens(self) -> None:
+    def test_double_click_is_ignored_before_recording_window_opens(self) -> None:
         self.store._post_recording_action_until = 0.0
+        self.store._state.codex.status = app.AgentStatus.RUNNING
 
         self.store.update_from_event({"event": "button_short"})
         self.store.update_from_event({"event": "button_double"})
 
         self.store.input_injector.press_enter.assert_not_called()
+        self.store.input_injector.focus_codex_composer.assert_called_once_with()
         self.store.input_injector.pause_current_codex_task.assert_not_called()
         self.assertEqual(self.store._state.alert.type, AlertType.DONE)
 
-    def test_clicks_are_ignored_after_recording_window_expires(self) -> None:
+    def test_double_click_is_ignored_after_recording_window_expires(self) -> None:
         self.store._post_recording_action_until = 30.0
 
         with mock.patch.object(app.time, "monotonic", return_value=30.1):

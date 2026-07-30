@@ -67,17 +67,12 @@ struct InstallSetupStepView: View {
             if error != nil { showDetails = true }
         }
         .task {
-            var pollCount = 0
             while !Task.isCancelled {
                 if !store.isInitializing,
                    store.setupReady,
                    !store.isBusy,
                    !store.deploymentComplete {
                     await store.refreshDevices()
-                    pollCount += 1
-                    if !store.swiftToolchainReady, pollCount.isMultiple(of: 4) {
-                        await store.refreshSystem()
-                    }
                 }
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
             }
@@ -184,7 +179,7 @@ struct InstallSetupStepView: View {
                 ReadyRow(
                     title: "安装组件",
                     detail: installationComponentsDetail,
-                    ready: store.swiftToolchainReady
+                    ready: true
                 )
             }
             .padding(8)
@@ -263,12 +258,6 @@ struct InstallSetupStepView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
-            } else if !store.swiftToolchainReady {
-                Button("准备必要组件") {
-                    store.requestCommandLineToolsInstallation()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
             } else {
                 Button(store.recoveryRequired ? "重新安装并恢复" : "开始安装") {
                     if let device = store.selectedDevice { onInstall(device) }
@@ -293,10 +282,8 @@ struct InstallSetupStepView: View {
 
     private var installationComponentsDetail: String {
         if store.isInitializing { return "正在检查" }
-        if !store.swiftToolchainReady { return "需要准备 Apple 系统组件" }
-        if !store.pythonRuntimeReady { return "Mac 运行组件将在安装时自动下载" }
-        if store.snapshot.idfExportPath == nil { return "设备组件将在安装时自动下载" }
-        return "已经准备好"
+        if !store.pythonRuntimeReady { return "内置 Mac 运行组件将在安装时自动准备" }
+        return "通用固件与刷写工具已经内置"
     }
 
     private var installModeDetail: String {
@@ -316,7 +303,6 @@ struct InstallSetupStepView: View {
         if isWaitingForDevice {
             return "请短按一次侧面电源键启动 StickS3。"
         }
-        if store.snapshot.idfExportPath == nil { return "首次安装下载较大，耗时取决于网络速度。" }
         return "安装器会自动继续，无需操作。"
     }
 

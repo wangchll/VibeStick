@@ -66,6 +66,31 @@ class MacInputInjectorTests(unittest.TestCase):
 
     @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Darwin")
     @mock.patch("vibe_stick.paste.input_injector.subprocess.run")
+    def test_focus_composer_raises_codex_and_only_sends_escape_when_needed(
+        self, run: mock.Mock, _system: mock.Mock
+    ) -> None:
+        run.return_value = subprocess.CompletedProcess([], 0, "", "")
+
+        result = MacPasteInjector().focus_codex_composer()
+
+        self.assertTrue(result.success)
+        script = "\n".join(run.call_args.args[0])
+        self.assertIn('tell application id "com.openai.codex" to activate', script)
+        self.assertIn('if exists process "ChatGPT" then exit repeat', script)
+        self.assertIn('if not (exists process "ChatGPT")', script)
+        self.assertIn('set frontmost to true', script)
+        self.assertIn('perform action "AXRaise" of front window', script)
+        self.assertIn('if not (frontmost of process "ChatGPT")', script)
+        self.assertIn('attribute "AXFocusedUIElement" of process "ChatGPT"', script)
+        self.assertIn('attribute "AXRole" of focusedElement', script)
+        self.assertIn(
+            'if focusedRole is not "AXTextArea" then tell process "ChatGPT" to key code 53',
+            script,
+        )
+        self.assertNotIn('  tell process "ChatGPT" to key code 53', run.call_args.args[0])
+
+    @mock.patch("vibe_stick.paste.input_injector.platform.system", return_value="Darwin")
+    @mock.patch("vibe_stick.paste.input_injector.subprocess.run")
     def test_pause_targets_codex_and_confirms_stop(self, run: mock.Mock, _system: mock.Mock) -> None:
         run.return_value = subprocess.CompletedProcess([], 0, "", "")
 

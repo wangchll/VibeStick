@@ -72,7 +72,6 @@ final class SetupStore {
     var readyToDeploy: Bool {
         canBeginInstallation
             && confirmedStickS3
-            && snapshot.idfExportPath != nil
     }
 
     var canBeginInstallation: Bool {
@@ -82,13 +81,11 @@ final class SetupStore {
             && asrConnectionVerified
             && selectedDevice?.isEspressifUSB == true
             && installModeRequirementSatisfied
-            && swiftToolchainReady
             && !isBusy
     }
 
     var installModeRequirementSatisfied: Bool {
         guard selectedDevice?.isEspressifUSB == true else { return false }
-        guard snapshot.idfExportPath != nil else { return true }
         return deviceInstallModeStatus == .ready
     }
 
@@ -102,7 +99,6 @@ final class SetupStore {
             String(device?.id ?? 0),
             device?.calloutPath ?? "",
             device?.serialNumber ?? "",
-            snapshot.idfExportPath ?? "",
         ].joined(separator: "|")
     }
 
@@ -116,7 +112,7 @@ final class SetupStore {
     }
 
     var requiredRuntimeReady: Bool {
-        pythonRuntimeReady && swiftToolchainReady
+        pythonRuntimeReady
     }
 
     var servicesReady: Bool {
@@ -134,10 +130,6 @@ final class SetupStore {
 
     var pythonRuntimeReady: Bool {
         snapshot.prerequisites.first { $0.kind == .python }?.available == true
-    }
-
-    var swiftToolchainReady: Bool {
-        snapshot.prerequisites.first { $0.kind == .swift }?.available == true
     }
 
     init() {
@@ -231,19 +223,14 @@ final class SetupStore {
         let refreshedSnapshot = await systemProbe.snapshot()
         guard generation == systemRefreshGeneration else { return }
         let previousDevice = selectedDevice
-        let previousIDFExportPath = snapshot.idfExportPath
         snapshot = SystemSnapshot(
             networkAddresses: refreshedSnapshot.networkAddresses,
             serialDevices: devicesAtStart == deviceRefreshGeneration
                 ? refreshedSnapshot.serialDevices
                 : snapshot.serialDevices,
-            prerequisites: refreshedSnapshot.prerequisites,
-            idfExportPath: refreshedSnapshot.idfExportPath
+            prerequisites: refreshedSnapshot.prerequisites
         )
         reconcileDeviceSelection(previousDevice: previousDevice)
-        if previousIDFExportPath != snapshot.idfExportPath {
-            invalidateDeviceInstallModeStatus()
-        }
         applyAutomaticBridgeHostIfNeeded()
     }
 
@@ -259,8 +246,7 @@ final class SetupStore {
         snapshot = SystemSnapshot(
             networkAddresses: snapshot.networkAddresses,
             serialDevices: devices,
-            prerequisites: snapshot.prerequisites,
-            idfExportPath: snapshot.idfExportPath
+            prerequisites: snapshot.prerequisites
         )
         reconcileDeviceSelection(previousDevice: previousDevice)
     }
@@ -424,23 +410,14 @@ final class SetupStore {
             }
             return
         }
-        guard let idfExportPath = snapshot.idfExportPath else {
-            deviceInstallModeStatus = .unavailable
-            return
-        }
-
         deviceInstallModeProbeGeneration &+= 1
         let generation = deviceInstallModeProbeGeneration
         deviceInstallModeStatus = .checking
         do {
-            let isReady = try await coordinator.probeInstallMode(
-                device: device,
-                idfExportPath: idfExportPath
-            )
+            let isReady = try await coordinator.probeInstallMode(device: device)
             try Task.checkCancellation()
             guard generation == deviceInstallModeProbeGeneration,
-                  selectedDevice == device,
-                  snapshot.idfExportPath == idfExportPath else { return }
+                  selectedDevice == device else { return }
             deviceInstallModeStatus = isReady ? .ready : .needsInstallMode
         } catch is CancellationError {
             if generation == deviceInstallModeProbeGeneration {
@@ -471,13 +448,11 @@ final class SetupStore {
             lastError = issue.message
         } else if !asrConnectionVerified {
             lastError = "请先返回上一步验证语音服务。"
-        } else if !swiftToolchainReady {
-            lastError = "需要先安装 Apple 命令行工具。点击“准备必要组件”，然后按系统提示完成。"
         } else if selectedDevice == nil {
             lastError = "还没有找到 StickS3，请连接 USB-C 数据线。"
         } else if selectedDevice?.isEspressifUSB != true {
             lastError = "当前设备不是可识别的 ESP32-S3，请重新连接 StickS3。"
-        } else if snapshot.idfExportPath != nil, !installModeRequirementSatisfied {
+        } else if !installModeRequirementSatisfied {
             switch deviceInstallModeStatus {
             case .checking:
                 lastError = "正在确认 StickS3 是否已进入安装模式，请稍候。"
@@ -515,7 +490,7 @@ final class SetupStore {
             do {
                 if !pythonRuntimeReady {
                     operationTitle = "正在准备 Mac 运行组件"
-                    appendLog("正在下载经过校验的 Python 运行组件。\n")
+                    appendLog("正在安装随 VibeStick 提供的 Python 运行组件。\n")
                     try await coordinator.installPythonRuntime(
                         onOutput: { output in
                             Task { @MainActor [weak self] in self?.appendLog(output) }
@@ -530,33 +505,10 @@ final class SetupStore {
                     }
                 }
 
-                var exportPath = snapshot.idfExportPath
-                if exportPath == nil {
-                    operationTitle = "正在下载安装组件（约 1 GB）"
-                    appendLog("首次安装需要下载 ESP32-S3 安装组件，请保持网络连接。\n")
-                    try await coordinator.installToolchain(
-                        onOutput: { output in
-                            Task { @MainActor [weak self] in self?.appendLog(output) }
-                        }
-                    )
-                    await refreshSystem()
-                    guard selectedDevice == device else {
-                        throw SetupCoreError.deviceChanged
-                    }
-                    guard let installedExportPath = snapshot.idfExportPath else {
-                        throw SetupCoreError.malformedConfiguration("安装组件完成后仍未找到 ESP-IDF")
-                    }
-                    exportPath = installedExportPath
-                }
-
-                guard let exportPath else {
-                    throw SetupCoreError.malformedConfiguration("缺少安装组件")
-                }
                 operationTitle = "正在安装 VibeStick"
                 let saved = try await coordinator.deploy(
                     configuration: configurationSnapshot,
                     device: device,
-                    idfExportPath: exportPath,
                     onStep: { [weak self] phase, state in
                         await self?.setStep(phase, state: state)
                     },
@@ -613,27 +565,6 @@ final class SetupStore {
             isBusy = false
             operationTitle = ""
             await refreshSystem()
-        }
-    }
-
-    func requestCommandLineToolsInstallation() {
-        guard !isInitializing, setupReady else {
-            lastError = "请先等待安装器完成环境检查。"
-            return
-        }
-        guard !swiftToolchainReady else {
-            Task { await refreshSystem() }
-            return
-        }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcode-select")
-        process.arguments = ["--install"]
-        do {
-            try process.run()
-            notice = "请在系统弹窗中完成 Apple 命令行工具安装，然后点“重新检查”。"
-            lastError = nil
-        } catch {
-            lastError = "无法打开 Apple 命令行工具安装程序，请在终端运行 xcode-select --install。"
         }
     }
 
@@ -708,7 +639,7 @@ final class SetupStore {
     private func friendlyProgressTitle(for phase: DeploymentPhase) -> String {
         switch phase {
         case .saveConfiguration: "正在准备安装"
-        case .buildFirmware: "正在准备设备软件"
+        case .prepareFirmware: "正在验证通用固件"
         case .installBridge: "正在启动 Mac 连接服务"
         case .flashFirmware: "正在写入 StickS3，请勿拔线"
         case .waitForDevice: "正在等待 StickS3 联网"

@@ -5,7 +5,6 @@
 #include <string.h>
 
 #include "vibe_board.h"
-#include "vibe_stick_config.h"
 #include "driver/i2s_std.h"
 #include "esp_check.h"
 #include "esp_codec_dev.h"
@@ -51,6 +50,7 @@ static const audio_codec_if_t *s_codec_if;
 static uint8_t *s_audio_buffer;
 static atomic_size_t s_audio_len;
 static size_t s_audio_capacity;
+static uint8_t s_speaker_volume = 85;
 
 static esp_err_t init_i2s(bool enable_tx, bool enable_rx)
 {
@@ -158,7 +158,7 @@ static esp_err_t init_codec(esp_codec_dev_type_t dev_type, esp_codec_dec_work_mo
                             ESP_FAIL, TAG, "mic gain");
     }
     if (dev_type & ESP_CODEC_DEV_TYPE_OUT) {
-        ESP_RETURN_ON_FALSE(esp_codec_dev_set_out_vol(s_codec, VIBE_STICK_SPEAKER_VOLUME) == ESP_CODEC_DEV_OK,
+        ESP_RETURN_ON_FALSE(esp_codec_dev_set_out_vol(s_codec, s_speaker_volume) == ESP_CODEC_DEV_OK,
                             ESP_FAIL, TAG, "speaker volume");
         ESP_RETURN_ON_FALSE(esp_codec_dev_set_out_mute(s_codec, false) == ESP_CODEC_DEV_OK,
                             ESP_FAIL, TAG, "speaker unmute");
@@ -376,8 +376,10 @@ static void audio_task(void *arg)
     vTaskDelete(NULL);
 }
 
-esp_err_t vibe_audio_init(void)
+esp_err_t vibe_audio_init(uint8_t speaker_volume)
 {
+    ESP_RETURN_ON_FALSE(speaker_volume <= 100, ESP_ERR_INVALID_ARG, TAG, "speaker volume");
+    s_speaker_volume = speaker_volume;
     if (!s_audio_mutex) {
         s_audio_mutex = xSemaphoreCreateMutex();
         ESP_RETURN_ON_FALSE(s_audio_mutex != NULL, ESP_ERR_NO_MEM, TAG, "audio mutex");

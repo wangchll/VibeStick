@@ -41,6 +41,8 @@ It owns:
 
 It does not read account cookies, browser state, API keys, or quota dashboards.
 
+The application firmware is identical for every device. At boot it validates schema v1 from the independent `vibe_cfg` NVS partition and remains in a visible `等待配置` state without starting Wi-Fi when configuration is absent or invalid. ASR credentials remain entirely on the Mac.
+
 ## Mac Bridge
 
 Bridge code lives in `bridge/src/vibe_stick/`.
@@ -63,19 +65,20 @@ Bridge state is stored under:
 
 ## Transport
 
-v0.3.4 uses HTTP over Wi-Fi.
+v0.3.11 uses HTTP over Wi-Fi.
 
-BLE is not part of the current mainline transport. USB is used for flashing and serial logs, not for runtime state transport.
+BLE is not part of the current mainline transport. USB is used for verified prebuilt flashing and serial logs, not for runtime state transport.
 
 HTTP traffic is not encrypted. The shared token authorizes protected requests but can be captured and replayed by an observer on the same network. The supported deployment boundary is a private, trusted LAN with port `8765` blocked from the internet.
 
 ## State Flow
 
-1. The StickS3 polls `GET /state` every 2 seconds.
+1. The StickS3 polls `GET /state` every 2 seconds while interactive. After the screen turns off during an observed active task, it keeps Wi-Fi modem sleep enabled and polls every 30 seconds.
 2. The Bridge builds a local `VibeStickState`.
 3. The StickS3 parses Codex status, quota fields, and alert fields.
 4. The StickS3 updates both the dashboard widgets and the Roxy animation; `KEY2` chooses which view is visible.
 5. Alert sounds are triggered only on relevant alert state changes, not on every poll.
+6. While completion watch and screen-off are both active, local PMIC reads run every 30 seconds and standalone power telemetry runs every 5 minutes; waking the screen restores the normal 2-second and 1-minute intervals.
 
 ## Recording Flow
 
@@ -93,12 +96,14 @@ Codex status is inferred from local Codex process/session activity and recent se
 
 Codex observation covers all user-started root conversations visible in local session data. Background subagents are excluded. A completion in any root conversation can publish an alert even while another conversation keeps the aggregate screen status at `RUNNING`.
 
+An explicit `task_started` lifecycle keeps its root conversation active through silent periods for up to two hours. StickS3 latches that active state across temporary network failures, blocks deep sleep until a valid terminal state arrives, and then returns to the normal idle sleep policy after playing the alert.
+
 The StickS3 home screen is dedicated to Codex status and quota.
 
-## v0.3.4 Limits
+## v0.3.11 Limits
 
-- No Apple-notarized DMG; the release provides a signed universal App in a ZIP archive.
-- No signed firmware release artifact.
+- Notarization still requires the release operator's Developer ID and notary credentials; source builds fall back to ad-hoc signing.
+- No OTA delivery yet, although the fixed partition layout reserves two OTA slots and rollback metadata.
 - No general device abstraction beyond StickS3.
 - No official Codex API for quota.
 - No BLE runtime transport.

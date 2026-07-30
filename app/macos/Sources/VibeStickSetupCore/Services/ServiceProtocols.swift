@@ -93,7 +93,7 @@ public enum SetupCoreError: LocalizedError, Equatable {
             case 15:
                 "这台 ESP32-S3 已启用安全下载模式，安装器无法安全写入普通 VibeStick 固件。"
             default:
-                "安装模式检测组件异常（退出码 \(code)）。请确认 ESP-IDF 组件完整后重试。"
+                "安装模式检测组件异常（退出码 \(code)）。请重新下载完整的 VibeStick 安装器后重试。"
             }
         case .cancelled:
             "操作已取消"
